@@ -108,6 +108,7 @@ static int sep_get_overlay_height(lua_State *L);
 static int sep_get_overlay_width(lua_State *L);
 static int sep_mpeg_get_height(lua_State *L);
 static int sep_mpeg_get_pixel(lua_State *L);
+static int sep_mpeg_get_rawpixel(lua_State *L);
 static int sep_mpeg_get_width(lua_State *L);
 static int sep_mpeg_get_scale(lua_State *L);
 static int sep_vldp_setvolume(lua_State *L);
