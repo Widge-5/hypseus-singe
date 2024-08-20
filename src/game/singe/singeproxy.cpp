@@ -125,6 +125,8 @@ int                   g_keyboard_up         = SDL_SCANCODE_UNKNOWN;
 
 g_positionT           g_tract;
 std::string           g_scriptpath;
+std::string           g_altgame             = "";
+std::string           ramfiles[]            = {".cfg", ".ram"};
 const char*           g_zipFile             = NULL;
 SDL_AudioSpec*        g_sound_load          = NULL;
 vector<ZipEntry>      g_zipList;
@@ -154,6 +156,7 @@ SINGE_EXPORT const struct singe_out_info *singeproxy_init(const struct singe_in_
     g_SingeOut.sep_set_surface         = sep_set_surface;
     g_SingeOut.sep_shutdown            = sep_shutdown;
     g_SingeOut.sep_startup             = sep_startup;
+    g_SingeOut.sep_altgame             = sep_altgame;
     g_SingeOut.sep_mute_vldp_init      = sep_mute_vldp_init;
     g_SingeOut.sep_no_crosshair        = sep_no_crosshair;
     g_SingeOut.sep_upgrade_overlay     = sep_upgrade_overlay;
@@ -259,27 +262,29 @@ void sep_set_rampath()
                  std::transform(search.end() - 3, search.end(),
                            search.end() - 3, ::tolower);
 
-             if ((int)search.find(".cfg") != -1) {
-                 found = g_zipList.readAsBinary();
-                 size = g_zipList.getSize();
+             for (const auto& ext : ramfiles) {
+                 if (search.find(ext) != std::string::npos) {
+                     found = g_zipList.readAsBinary();
+                     size = g_zipList.getSize();
 
-                 int l = strlen(name.c_str());
-                 lua_rampath(name.c_str(), rampath, l);
+                     int l = strlen(name.c_str());
+                     lua_rampath(name.c_str(), rampath, l);
 
-                 if (!mpo_file_exists(rampath)) {
+                     if (!mpo_file_exists(rampath)) {
 
-                     home.create_dirs(rampath);
-                     fstream fs(rampath,ios::out|ios::binary);
+                         home.create_dirs(rampath);
+                         fstream fs(rampath,ios::out|ios::binary);
 
-                     if (fs.is_open()) {
+                         if (fs.is_open()) {
 
-                         fs.write((const char*)found, size);
-                         fs.close();
-                         LOGW << sep_fmt("Creating ramfile: %s", rampath);
+                             fs.write((const char*)found, size);
+                             fs.close();
+                             LOGW << sep_fmt("Copying ramfile: %s from zip", rampath);
 
-                     } else {
-                         LOGE << sep_fmt("Error Creating Zip ramfile: %s", rampath);
-                         g_pSingeIn->set_quitflag();
+                         } else {
+                             LOGE << sep_fmt("Error copying zip ramfile: %s", rampath);
+                             g_pSingeIn->set_quitflag();
+                         }
                      }
                  }
              }
@@ -610,8 +615,6 @@ void sep_shutdown(void)
     sep_unload_sounds();
     sep_unload_sprites();
 	
-    TTF_Quit();
-
     if (g_bLuaInitialized)
     {
         lua_close(g_se_lua_context);
@@ -1007,6 +1010,11 @@ void sep_lua_failure(lua_State* L, const char* s)
     g_bLuaInitialized = false;
 }
 
+void sep_altgame(const char *data)
+{
+    g_altgame = data;
+}
+
 void sep_startup(const char *data)
 {
     g_soundT sound;
@@ -1171,8 +1179,8 @@ void sep_startup(const char *data)
 
     //////////////////
 
-    if (TTF_Init() < 0)
-        sep_die("Unable to initialize font library.");
+    if (!TTF_WasInit())
+        sep_die("SDL TTF font library is not available.");
 
     sep_capture_vldp();
     g_bLuaInitialized = true;
@@ -1210,7 +1218,10 @@ void sep_startup(const char *data)
                      pos = g_scriptpath.find_last_of("\\");
 #endif
                  std::string s = g_scriptpath.substr(++pos);
-                 s.replace(s.find(".zip"), 4, ".singe");
+
+                 if (!g_altgame.empty()) s = g_altgame + ".singe";
+                 else s.replace(s.find(".zip"), 4, ".singe");
+
                  startup = s;
 
                  if ((int)name.find(s) != -1) {
@@ -1241,6 +1252,10 @@ void sep_startup(const char *data)
     } else {
 
         if (g_pSingeIn->get_retro_path()) sep_set_retropath();
+
+        if (!g_altgame.empty()) {
+            LOGW << sep_fmt("'%s': Unused in this loading context.", g_altgame.c_str());
+        }
 
         if (luaL_dofile(g_se_lua_context, data) != 0)
             sep_lua_failure(g_se_lua_context, NULL);
@@ -1836,7 +1851,11 @@ static int sep_overlay_clear(lua_State *L)
 
 static int sep_lua_rewrite(lua_State *L)
 {
-    lua_pushboolean(L, g_pSingeIn->get_retro_path());
+    if (g_rom_zip)
+        lua_pushboolean(L, false);
+    else
+        lua_pushboolean(L, g_pSingeIn->get_retro_path());
+
     return 1;
 }
 

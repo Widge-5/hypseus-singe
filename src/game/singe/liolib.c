@@ -209,7 +209,11 @@ static int g_iofile (lua_State *L, int f, const char *mode) {
         char ramname[RETRO_MAXPATH] = {0};
         if (len > RETRO_MAXPATH) len = RETRO_MAXPATH;
         lua_rampath(filename, ramname, len);
-        *pf = fopen(ramname, mode);
+        if (strcmp(mode, "w") == 0 && lua_chkdir(ramname) != 0) {
+            *pf = NULL;
+        } else {
+            *pf = fopen(ramname, mode);
+        }
         if (*pf == NULL) fileerror(L, 1, ramname);
 
       } else {

@@ -297,6 +297,7 @@ class singe : public game
 
     string m_strName;       // name of the game
     string m_strGameScript; // script name for the game
+    string m_zipAltName;    // alternate script in zip
 
     DLL_INSTANCE m_dll_instance; // pointer to DLL we load (if we aren't
                                  // statically linked)

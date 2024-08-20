@@ -4,7 +4,7 @@
  *
  * ____ HYPSEUS COPYRIGHT NOTICE ____
  *
- * Copyright (C) 2021 DirtBagXon
+ * Copyright (C) 2024 DirtBagXon
  *
  * This file is part of HYPSEUS SINGE, a laserdisc arcade game emulator
  *
@@ -23,7 +23,18 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#else
+#include <unistd.h>
+#endif
+
+#include "luretro.h"
 
 enum {
     PATH_DAPHNE,
@@ -45,6 +56,20 @@ unsigned char inPath(const char* src, char* path)
 {
     char *s = strstr(src, path);
     if (s != NULL) return 1;
+    return 0;
+}
+
+// We block in lfs, isolate to zip rampath via io
+int lua_mkdir(const char *path)
+{
+    struct stat st = {0};
+
+    if (stat(path, &st) == -1) {
+        if (mkdir(path, 0755) != 0) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 
@@ -115,4 +140,27 @@ void lua_rampath(const char *src, char *dst, int len)
         }
     }
     *dst = '\0';
+}
+
+int lua_chkdir(const char *path)
+{
+    char tmp[RETRO_MAXPATH];
+    char *p = NULL;
+    int len;
+
+    snprintf(tmp, sizeof(tmp), "%s", path);
+    len = strlen(tmp);
+
+    for (p = tmp + 1; p < tmp + len; p++) {
+        if (*p == '/') {
+            *p = '\0';
+
+            if (lua_mkdir(tmp) != 0) {
+                return -1;
+            }
+            *p = '/';
+        }
+    }
+
+    return 0;
 }
