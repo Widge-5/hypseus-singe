@@ -69,6 +69,7 @@ const int singe::i_full_keybd_defs[] = {SDLK_BACKSPACE,    SDLK_TAB,
 singe::singe() : m_pScoreboard(NULL)
 {
     m_strGameScript           = "";
+    m_strDataPaths            = "";
     m_zipAltName              = "";
     m_shortgamename           = "singe";
     m_strName                 = "[Undefined scripted game]";
@@ -86,7 +87,6 @@ singe::singe() : m_pScoreboard(NULL)
     m_muteinit                = false;
     m_notarget                = false;
     m_running                 = false;
-
 
     singe_xratio              = 0.0;
     singe_yratio              = 0.0;
@@ -243,8 +243,8 @@ void singe::start()
     printline(s1);
     g_pSingeOut->sep_set_surface(m_video_overlay_width, m_video_overlay_height);
     g_pSingeOut->sep_set_static_pointers(&m_disc_fps, &m_uDiscFPKS);
-
-    if (!m_zipAltName.empty()) g_pSingeOut->sep_altgame(m_zipAltName.c_str());
+    g_pSingeOut->sep_datapaths(m_strDataPaths.c_str());
+    g_pSingeOut->sep_altgame(m_zipAltName.c_str());
     g_pSingeOut->sep_startup(m_strGameScript.c_str());
 
     bool blanking = g_local_info.blank_during_searches | g_local_info.blank_during_skips;
@@ -428,7 +428,9 @@ bool singe::handle_cmdline_arg(const char *arg)
         bResult = true;
 
         for (int i = 0; i < len && s[i] != '\0'; ++i) {
-            if (!isalnum(s[i]) && s[i] != '_' && s[i] != '-') {
+            if (!isalnum(s[i])
+                && s[i] != int('_')
+                && s[i] != int('-')) {
                 bResult = false;
             }
         }
@@ -442,6 +444,33 @@ bool singe::handle_cmdline_arg(const char *arg)
     else if (strcasecmp(arg, "-retropath") == 0) {
         game::set_console_flag(true);
         bResult = true;
+    }
+    else if (strcasecmp(arg, "-singedir") == 0) {
+        get_next_word(s, sizeof(s));
+        bResult = true;
+
+        for (int i = 0; i < len && s[i] != '\0'; ++i) {
+            if (!isalnum(s[i])
+                && s[i] != int('/')
+                && s[i] != int('.')
+                && s[i] != int('-')
+                && s[i] != int('_')
+#ifdef WIN32
+                && s[i] != int(' ')
+                && s[i] != int(':')
+                && s[i] != int('\\')
+#endif
+            )
+            {
+                printerror("SINGE: Invalid path characters specified");
+                bResult = false;
+            }
+        }
+
+        if (bResult) {
+            m_strDataPaths = s + string("/");
+            game::set_console_flag(true);
+        }
     }
     else if (strcasecmp(arg, "-bootsilent") == 0) {
         m_muteinit = true;

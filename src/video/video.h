@@ -37,6 +37,9 @@
 #define NOSQUARE 0x2D0
 #define TITLE_LENGTH 42
 
+#define YUV_H 0
+#define YUV_V 1
+
 #include "SDL_FontCache.h"
 #include <SDL.h>
 
@@ -219,6 +222,7 @@ void set_scale_h_shift(int value);
 void set_scale_v_shift(int value);
 void set_score_screen(int value);
 void set_fRotateDegrees(float fDegrees);
+void set_yuv_scale(int value, uint8_t axis);
 
 void set_vertical_orientation(bool);
 void format_fullscreen_render();

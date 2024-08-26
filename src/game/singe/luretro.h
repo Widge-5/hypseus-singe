@@ -36,6 +36,7 @@ int lua_chkdir(const char *path);
 
 void lua_set_retropath(unsigned char value);
 void lua_set_zipath(unsigned char value);
+void lua_set_abpath(const char *value);
 
 void lua_retropath(const char *src, char *dst, int len);
 void lua_rampath(const char *src, char *dst, int len);

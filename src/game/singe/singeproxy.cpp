@@ -118,6 +118,8 @@ bool                  g_rom_zip             = false;
 bool                  g_firstload           = true;
 bool                  g_firstfont           = true;
 bool                  g_firstsnd            = true;
+bool                  g_pixelready          = false;
+uint32_t              g_format              = 0;
 
 bool                  g_keyboard_state[SDL_NUM_SCANCODES] = {false};
 int                   g_keyboard_down       = SDL_SCANCODE_UNKNOWN;
@@ -125,8 +127,8 @@ int                   g_keyboard_up         = SDL_SCANCODE_UNKNOWN;
 
 g_positionT           g_tract;
 std::string           g_scriptpath;
-std::string           g_altgame             = "";
-std::string           ramfiles[]            = {".cfg", ".ram"};
+std::string           g_altgame;
+const std::string     ramfiles[]            = {".cfg", ".ram"};
 const char*           g_zipFile             = NULL;
 SDL_AudioSpec*        g_sound_load          = NULL;
 vector<ZipEntry>      g_zipList;
@@ -156,6 +158,7 @@ SINGE_EXPORT const struct singe_out_info *singeproxy_init(const struct singe_in_
     g_SingeOut.sep_set_surface         = sep_set_surface;
     g_SingeOut.sep_shutdown            = sep_shutdown;
     g_SingeOut.sep_startup             = sep_startup;
+    g_SingeOut.sep_datapaths           = sep_datapaths;
     g_SingeOut.sep_altgame             = sep_altgame;
     g_SingeOut.sep_mute_vldp_init      = sep_mute_vldp_init;
     g_SingeOut.sep_no_crosshair        = sep_no_crosshair;
@@ -188,6 +191,11 @@ unsigned char sep_byte_clip(int value)
 void sep_set_retropath()
 {
     lua_set_retropath(true);
+}
+
+void sep_datapaths(const char *data)
+{
+   if (data[0] != '\0') lua_set_abpath(data);
 }
 
 SDL_GameControllerButton get_button(int value)
@@ -565,14 +573,16 @@ void sep_set_surface(int width, int height)
     }
 }
 
-SDL_Surface *sep_copy_surface(SDL_Surface *src)
+SDL_Surface *sep_copy_surface(SDL_Surface *src, SDL_Rect *rect)
 {
     SDL_Surface *dst = NULL;
 
+    int w = rect ? rect->w : src->w;
+    int h = rect ? rect->h : src->h;
+
     dst = SDL_CreateRGBSurface(
         src->flags,
-        src->w,
-        src->h,
+        w, h,
         src->format->BitsPerPixel,
         src->format->Rmask,
         src->format->Gmask,
@@ -581,28 +591,7 @@ SDL_Surface *sep_copy_surface(SDL_Surface *src)
     );
 
     if (dst != NULL)
-        SDL_BlitSurface(src, NULL, dst, NULL);
-
-    return dst;
-}
-
-SDL_Surface *sep_copy_surface_rect(SDL_Surface *src, SDL_Rect rect)
-{
-    SDL_Surface *dst = NULL;
-
-    dst = SDL_CreateRGBSurface(
-        src->flags,
-        rect.w,
-        rect.h,
-        src->format->BitsPerPixel,
-        src->format->Rmask,
-        src->format->Gmask,
-        src->format->Bmask,
-        src->format->Amask
-    );
-
-    if (dst != NULL)
-        SDL_BlitSurface(src, &rect, dst, NULL);
+        SDL_BlitSurface(src, rect, dst, NULL);
 
     return dst;
 }
@@ -1255,7 +1244,7 @@ void sep_startup(const char *data)
         if (g_pSingeIn->get_retro_path()) sep_set_retropath();
 
         if (!g_altgame.empty()) {
-            LOGW << sep_fmt("'%s': Unused in this loading context.", g_altgame.c_str());
+            LOGW << sep_fmt("'%s': altname has no meaning in this loading context.", g_altgame.c_str());
         }
 
         if (luaL_dofile(g_se_lua_context, data) != 0)
@@ -1600,7 +1589,7 @@ static int sep_font_sprite(lua_State *L)
                   sprite.scaleX = 1.0;
                   sprite.scaleY = 1.0;
                   sprite.frame = NULL;
-                  sprite.store = sep_copy_surface(textsurface);
+                  sprite.store = sep_copy_surface(textsurface, NULL);
                   sprite.present = textsurface;
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
                   sprite.animation = NULL;
@@ -1663,14 +1652,10 @@ static int sep_vldp_setvolume(lua_State *L)
 
 static int sep_mpeg_get_rawpixel(lua_State *L)
 {
-    Uint32 format;
     int n = lua_gettop(L);
     bool result = false;
-    static bool setup = false;
-    SDL_QueryTexture(g_se_texture, &format, NULL, NULL, NULL);
-    unsigned char pixel[4];
+    unsigned char pixel[SDL_BYTESPERPIXEL(g_format)];
     SDL_Rect rect;
-    int Y, U, V;
 
     if (n == 2) {
         if (lua_isnumber(L, 1)) {
@@ -1680,14 +1665,14 @@ static int sep_mpeg_get_rawpixel(lua_State *L)
                                           / (double)g_se_overlay_width));
                 rect.y = (int)((double)lua_tonumber(L, 2) * ((double)g_pSingeIn->g_vldp_info->h
                                           / (double)g_se_overlay_height));
-                if (setup) {
+                if (g_pixelready) {
                     if (SDL_SetRenderTarget(g_se_renderer, g_se_texture) < 0) {
-                        sep_die("Could not RenderTarget in vldpGetPixel: %s", SDL_GetError());
+                        sep_die("Could not RenderTarget in vldpGetYUVPixel: %s", SDL_GetError());
                         goto exit;
                     } else {
-                        if (SDL_RenderReadPixels(g_se_renderer, &rect, format, pixel,
-                                SDL_BYTESPERPIXEL(format)) < 0) {
-                            sep_die("Could not ReadPixel in vldpGetPixel: %s", SDL_GetError());
+                        if (SDL_RenderReadPixels(g_se_renderer, &rect, g_format, pixel,
+                                SDL_BYTESPERPIXEL(g_format)) < 0) {
+                            sep_die("Could not ReadPixel in vldpGetYUVPixel: %s", SDL_GetError());
                             goto exit;
                         }
                     }
@@ -1696,13 +1681,13 @@ static int sep_mpeg_get_rawpixel(lua_State *L)
                     g_se_renderer     = video::get_renderer();
                     g_se_texture      = video::get_yuv_screen();
 
-                    if (g_se_renderer && g_se_texture) setup = true;
+                    if (g_se_renderer && g_se_texture) {
+                        SDL_QueryTexture(g_se_texture, &g_format, NULL, NULL, NULL);
+                        g_pixelready = true;
+                    }
                     goto exit;
-                }
+	        }
 
-                Y = pixel[0];
-                U = pixel[2];
-                V = pixel[1];
                 result = true;
             }
         }
@@ -1710,9 +1695,9 @@ static int sep_mpeg_get_rawpixel(lua_State *L)
 
 exit:
     if (result) {
-        lua_pushnumber(L, (int)Y);
-        lua_pushnumber(L, (int)U);
-        lua_pushnumber(L, (int)V);
+        lua_pushnumber(L, (int)pixel[0]); // Y
+        lua_pushnumber(L, (int)pixel[2]); // U
+        lua_pushnumber(L, (int)pixel[1]); // V
     } else {
         lua_pushnumber(L, -1);
         lua_pushnumber(L, -1);
@@ -1723,12 +1708,9 @@ exit:
 
 static int sep_mpeg_get_pixel(lua_State *L)
 {
-    Uint32 format;
     int n = lua_gettop(L);
     bool result = false;
-    static bool setup = false;
-    SDL_QueryTexture(g_se_texture, &format, NULL, NULL, NULL);
-    unsigned char pixel[SDL_BYTESPERPIXEL(format)];
+    unsigned char pixel[SDL_BYTESPERPIXEL(g_format)];
     unsigned char R, G, B;
     SDL_Rect rect;
     int Y, U, V;
@@ -1741,13 +1723,13 @@ static int sep_mpeg_get_pixel(lua_State *L)
                                           / (double)g_se_overlay_width));
                 rect.y = (int)((double)lua_tonumber(L, 2) * ((double)g_pSingeIn->g_vldp_info->h
                                           / (double)g_se_overlay_height));
-                if (setup) {
+                if (g_pixelready) {
                     if (SDL_SetRenderTarget(g_se_renderer, g_se_texture) < 0) {
                         sep_die("Could not RenderTarget in vldpGetPixel: %s", SDL_GetError());
                         goto exit;
                     } else {
-                        if (SDL_RenderReadPixels(g_se_renderer, &rect, format, pixel,
-                                SDL_BYTESPERPIXEL(format)) < 0) {
+                        if (SDL_RenderReadPixels(g_se_renderer, &rect, g_format, pixel,
+                                SDL_BYTESPERPIXEL(g_format)) < 0) {
                             sep_die("Could not ReadPixel in vldpGetPixel: %s", SDL_GetError());
                             goto exit;
                         }
@@ -1757,9 +1739,13 @@ static int sep_mpeg_get_pixel(lua_State *L)
                     g_se_renderer     = video::get_renderer();
                     g_se_texture      = video::get_yuv_screen();
 
-                    if (g_se_renderer && g_se_texture) setup = true;
+                    if (g_se_renderer && g_se_texture) {
+                        SDL_QueryTexture(g_se_texture, &g_format, NULL, NULL, NULL);
+                        g_pixelready = true;
+                    }
                     goto exit;
-                }
+	        }
+
                 Y = pixel[0] - 16;
                 U = pixel[2] - 128;
                 V = pixel[1] - 128;
@@ -1912,10 +1898,7 @@ static int sep_overlay_clear(lua_State *L)
 
 static int sep_lua_rewrite(lua_State *L)
 {
-    if (g_rom_zip)
-        lua_pushboolean(L, false);
-    else
-        lua_pushboolean(L, g_pSingeIn->get_retro_path());
+    lua_pushboolean(L, !g_rom_zip && g_pSingeIn->get_retro_path());
 
     return 1;
 }
@@ -2444,7 +2427,7 @@ static int sep_sprite_draw(lua_State *L)
                   }
                   if (change) {
                       SDL_FreeSurface(g_sprites[id].frame);
-                      g_sprites[id].frame = sep_copy_surface(g_sprites[id].animation->frames[g_sprites[id].flow]);
+                      g_sprites[id].frame = sep_copy_surface(g_sprites[id].animation->frames[g_sprites[id].flow], NULL);
                       SDL_FreeSurface(g_sprites[id].present);
                       g_sprites[id].present = rotozoomSurfaceXY(g_sprites[id].frame, 360 - g_sprites[id].angle, g_sprites[id].scaleX, g_sprites[id].scaleY, g_sprites[id].smooth);
                       if (g_sprites[id].rekey) SDL_SetColorKey(g_sprites[id].present, SDL_TRUE, 0x0);
@@ -2597,7 +2580,7 @@ static int sep_sprite_load(lua_State *L)
                image = SDL_ConvertSurface(image, g_se_surface->format, 0);
                SDL_SetSurfaceRLE(image, SDL_TRUE);
                SDL_SetColorKey(image, SDL_TRUE, 0x0);
-               sprite.store = sep_copy_surface(image);
+               sprite.store = sep_copy_surface(image, NULL);
                sprite.present = image;
                sprite.animation = NULL;
 
@@ -2607,15 +2590,15 @@ static int sep_sprite_load(lua_State *L)
                    SDL_SetColorKey(temp->frames[x], SDL_TRUE, 0x0);
                }
 
-               sprite.present = sep_copy_surface(temp->frames[0]);
-               sprite.store = sep_copy_surface(sprite.present);
+               sprite.present = sep_copy_surface(temp->frames[0], NULL);
+               sprite.store = sep_copy_surface(sprite.present, NULL);
                sprite.animation = temp;
            }
 #else
            temp = SDL_ConvertSurface(temp, g_se_surface->format, 0);
            SDL_SetSurfaceRLE(temp, SDL_TRUE);
            SDL_SetColorKey(temp, SDL_TRUE, 0x0);
-           sprite.store = sep_copy_surface(temp);
+           sprite.store = sep_copy_surface(temp, NULL);
            sprite.present = temp;
 #endif
            sprite.scaleX = 1.0;
@@ -2689,7 +2672,7 @@ static int sep_sprite_loadframes(lua_State *L)
                 sprite.frames = frames;
                 sprite.fwidth = temp->w / frames;
                 sprite.frame = NULL;
-                sprite.store = sep_copy_surface(temp);
+                sprite.store = sep_copy_surface(temp, NULL);
                 sprite.present = temp;
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
                 sprite.animation = NULL;
@@ -2780,7 +2763,7 @@ static int sep_sprite_rotateframe(lua_State *L)
                   src.y = 0;
 
                   g_sprites[id].angle = a;
-                  SDL_Surface *temp = sep_copy_surface_rect(g_sprites[id].store, src);
+                  SDL_Surface *temp = sep_copy_surface(g_sprites[id].store, &src);
 
                   SDL_FreeSurface(g_sprites[id].frame);
                   g_sprites[id].frame = rotozoomSurfaceXY(temp, 360 - g_sprites[id].angle, g_sprites[id].scaleX, g_sprites[id].scaleY, g_sprites[id].smooth);

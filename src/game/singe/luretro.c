@@ -43,6 +43,7 @@ enum {
     PATH_END
 };
 
+static char g_abpath[RETRO_MAXPATH] = "\0";
 static unsigned char g_retropath = 0;
 static unsigned char g_zipath = 0;
 
@@ -51,6 +52,12 @@ unsigned char get_zipath() { return g_zipath; }
 
 void lua_set_retropath(unsigned char value) { g_retropath = value; }
 void lua_set_zipath(unsigned char value) { g_zipath = value; }
+
+void lua_set_abpath(const char *value)
+{
+    strncpy(g_abpath, value, sizeof(g_abpath) - 1);
+    g_abpath[sizeof(g_abpath) - 1] = '\0';
+}
 
 unsigned char inPath(const char* src, char* path)
 {
@@ -78,25 +85,30 @@ void lua_retropath(const char *src, char *dst, int len)
     unsigned char r = 0, fin = 0, folder = 0, path = PATH_DAPHNE;
 
     if (inPath(src, "Framework")) path = PATH_FRAMEWORK;
-    if (inPath(src, "singe/")) folder = PATH_SINGE;
-    else r++;
+    if (inPath(src, "singe/")) {
+         folder = PATH_SINGE;
+         src += 6;
+    }
 
     for (int i = 0; i < (len - 2); src++, i++) {
         if (fin != PATH_END) {
             if (*src == '\0') {
                 fin = PATH_END;
             }
-            if (i == 0 && *src == '/') continue;
-            if (folder == PATH_SINGE && i == 6) {
-                dst -= 5;
-                memcpy(dst, "roms/../", 8);
-                dst += 8;
+            if (folder == PATH_SINGE && i == 0) {
+                if (g_abpath[0] != 0) {
+                    memcpy(dst, g_abpath, strlen(g_abpath));
+                    dst += strlen(g_abpath);
+                } else {
+                    memcpy(dst, "roms/../", 8);
+                    dst += 8;
+                }
             }
             if (*src == '/' && r < 0xf) {
                 r++;
                 continue;
             }
-            if (r == 2) {
+            if (r == 1) {
                 switch(path) {
                 case (PATH_FRAMEWORK):
                     memcpy(dst, "/", 1);

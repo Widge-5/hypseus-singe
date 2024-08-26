@@ -1000,10 +1000,25 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
 
-                if (game_cliff != NULL && (i >= 1 && i <= 24)) {
-                    g_game->set_stretch_value(i);
+                if (i > 0 && i < 25) {
+                    if (game_cliff != NULL) {
+                        g_game->set_stretch_value(i);
+                    } else {
+                        video::set_yuv_scale(i, YUV_V);
+                    }
                 } else {
-                    printerror("This argument only works with cliff and gtg. Values [1-24]");
+                    printerror("Vertical stretch. Values [1-24]");
+                    result = false;
+                }
+            }
+            else if (strcasecmp(s, "-horizontal_stretch") == 0) {
+                get_next_word(s, sizeof(s));
+                i = atoi(s);
+
+                if (i > 0 && i < 25) {
+                    video::set_yuv_scale(i, YUV_H);
+                } else {
+                    printerror("Horizontal stretch. Values [1-24]");
                     result = false;
                 }
             }

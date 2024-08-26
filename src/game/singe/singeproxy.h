@@ -73,6 +73,7 @@ void          sep_set_surface(int width, int height);
 void          sep_shutdown(void);
 void          sep_sound_ended(Uint8 *buffer, unsigned int slot);
 void          sep_startup(const char *script);
+void          sep_datapaths(const char *path);
 void          sep_altgame(const char *altgame);
 void          sep_unload_fonts(void);
 void          sep_unload_sounds(void);

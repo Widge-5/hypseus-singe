@@ -106,6 +106,7 @@ SDL_Surface *g_aux_blit_surface    = NULL;
 SDL_Texture *g_bezel_texture       = NULL;
 SDL_Texture *g_aux_texture         = NULL;
 SDL_Texture *g_rtr_texture         = NULL;
+SDL_Rect *g_yuv_rect               = NULL;
 
 SDL_Rect g_aux_rect;
 SDL_Rect g_overlay_size_rect;
@@ -175,6 +176,9 @@ std::string g_tqkeys;
 // degrees in clockwise rotation
 float g_fRotateDegrees = 0.0f;
 double g_aux_ratio = 1.0f;
+
+// YUV stretching
+float g_yuv_scale[2] = { 1.0f, 1.0f };
 
 // YUV structure
 typedef struct {
@@ -593,6 +597,11 @@ bool deinit_display()
 
     if (g_aux_texture)
         SDL_DestroyTexture(g_aux_texture);
+
+    if (g_yuv_rect != NULL) {
+        free(g_yuv_rect);
+        g_yuv_rect = NULL;
+    }
 
     g_bezel_texture = NULL;
     g_aux_texture = NULL;
@@ -1185,8 +1194,8 @@ void set_yuv_lock_blank(bool value)
      g_yuv_lock_blank = value;
      if (value)
          vid_update_yuv_overlay(g_yuv_surface->Yplane, g_yuv_surface->Uplane,
-             g_yuv_surface->Vplane, g_yuv_surface->Ypitch, g_yuv_surface->Upitch,
-                 g_yuv_surface->Vpitch);
+         g_yuv_surface->Vplane, g_yuv_surface->Ypitch, g_yuv_surface->Upitch,
+         g_yuv_surface->Vpitch);
 }
 
 void set_scalefactor(int value)
@@ -1287,6 +1296,17 @@ void set_fRotateDegrees(float fDegrees)
      draw_subtitle(d, true, true);
 
      g_fRotateDegrees = fDegrees;
+}
+
+void set_yuv_scale(int v, uint8_t axis)
+{
+     if (g_yuv_rect == NULL)
+         g_yuv_rect = (SDL_Rect*)malloc(sizeof(SDL_Rect));
+
+     if (v <= 0x01) g_yuv_scale[axis] = 0.99f;
+     else if (v < 0x0c) g_yuv_scale[axis] = (float)(1.001 - 0.011 * v);
+     else if (v < 0x18) g_yuv_scale[axis] = (float)(0.990 - 0.010 * v);
+     else g_yuv_scale[axis] = 0.75f;
 }
 
 void calc_annun_rect()
@@ -1614,6 +1634,13 @@ void vid_setup_yuv_overlay (int width, int height) {
 
     // Setup the threaded access stuff, since this surface is accessed from the vldp thread, too.
     g_yuv_surface->mutex = SDL_CreateMutex();
+
+    if (g_yuv_rect) {
+        g_yuv_rect->w = width * g_yuv_scale[YUV_H];
+        g_yuv_rect->h = height * g_yuv_scale[YUV_V];
+        g_yuv_rect->x = (width >> 1) - (g_yuv_rect->w >> 1);
+        g_yuv_rect->y = (height >> 1) - (g_yuv_rect->h >> 1);
+    }
 }
 
 SDL_Texture *vid_create_yuv_texture (int width, int height) {
@@ -1863,7 +1890,7 @@ void vid_blit () {
     // Sadly, we have to RenderCopy the YUV texture on every blitting strike, because
     // the image on the renderer gets "dirty" with previous overlay frames on top of the yuv.
     if (g_yuv_texture)
-        SDL_RenderCopy(g_renderer, g_yuv_texture, NULL, &g_scaling_rect);
+        SDL_RenderCopy(g_renderer, g_yuv_texture, g_yuv_rect, &g_scaling_rect);
 
     // If there's an overlay texture, it means we are using some kind of overlay,
     // be it LEDs or any other thing, so RenderCopy it to the renderer ON TOP of the YUV video.

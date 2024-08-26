@@ -127,6 +127,7 @@ struct singe_out_info
 	void (*sep_set_surface)(int width, int height);
 	void (*sep_shutdown)(void);
 	void (*sep_startup)(const char *script);
+	void (*sep_datapaths)(const char *path);
 	void (*sep_altgame)(const char *altgame);
 	void (*sep_set_retropath)(void);
 	void (*sep_keyboard_set_state)(int key, bool state);
