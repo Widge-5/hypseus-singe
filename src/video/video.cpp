@@ -77,7 +77,10 @@ int s_shunt = 2;
 
 int g_viewport_width = g_vid_width, g_viewport_height = g_vid_height;
 int g_aspect_width = 0, g_aspect_height = 0;
+int g_alloc_screen = 0;
 int g_score_screen = 0;
+int g_displays = 0;
+int g_display = 0;
 
 int sb_window_pos_x = 0, sb_window_pos_y = 0;
 int aux_bezel_pos_x = 0, aux_bezel_pos_y = 0;
@@ -222,7 +225,7 @@ bool init_display()
 
         if (g_fullscreen)
             sdl_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-        else if (g_fakefullscreen)
+        else if (g_fakefullscreen && g_alloc_screen == 0)
             sdl_flags |= SDL_WINDOW_MAXIMIZED | SDL_WINDOW_BORDERLESS;
 
         if (g_forcetop)
@@ -287,8 +290,22 @@ bool init_display()
             }
         }
 
-        g_window = SDL_CreateWindow(title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                         g_viewport_width, g_viewport_height, sdl_flags);
+        g_displays = SDL_GetNumVideoDisplays();
+        SDL_Rect displayDimensions[g_displays];
+
+        for (int i = 0; i < g_displays; i++) {
+            SDL_GetDisplayBounds(i, &displayDimensions[i]);
+        }
+
+        if (g_alloc_screen > g_display && g_alloc_screen < g_displays)
+            g_display = g_alloc_screen;
+
+        g_window = SDL_CreateWindow(title,
+	    displayDimensions[g_display].x +
+                ((displayDimensions[g_display].w - g_viewport_width) >> 1),
+	    displayDimensions[g_display].y +
+                ((displayDimensions[g_display].h - g_viewport_height) >> 1),
+	    g_viewport_width, g_viewport_height, sdl_flags);
 
         if (!g_window) {
             LOGE << fmt("Could not initialize window: %s", SDL_GetError());
@@ -358,12 +375,6 @@ bool init_display()
                     if (g_sb_bezel_alpha > 1)
                         SDL_SetColorKey(g_sb_blit_surface, SDL_TRUE, 0x000000ff);
 
-                    int displays = SDL_GetNumVideoDisplays();
-                    SDL_Rect displayDimensions[displays];
-
-                    for (int i = 0; i < displays; i++)
-                        SDL_GetDisplayBounds(i, &displayDimensions[i]);
-
                     if (g_sb_bezel) {
 
                         if (!g_sb_bezel_alpha)
@@ -383,11 +394,13 @@ bool init_display()
                             set_quitflag();
                         }
 
-			if (displays > 1) {
+			if (g_displays > 1) {
 
                             int s = 1;
-                            if (g_score_screen > s && g_score_screen <= displays)
+                            if (g_score_screen > s && g_score_screen <= g_displays)
                                 s = g_score_screen;
+
+                            s = (g_display == 1 && s == 1) ? 0 : s;
 
                             SDL_SetWindowPosition(g_sb_window,
                                displayDimensions[s].x + sb_window_pos_x,
@@ -412,7 +425,7 @@ bool init_display()
                                (sdl_flags & SDL_WINDOW_MAXIMIZED) != 0) {
 
                     if ((sdl_flags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
-                        SDL_GetDisplayBounds(0, &g_logical_rect);
+                        SDL_GetDisplayBounds(g_display, &g_logical_rect);
                     } else {
 
                         if (SDL_GetDesktopDisplayMode(0, &g_displaymode) != 0) {
@@ -1187,6 +1200,7 @@ void set_aux_bezel_alpha(int8_t value) { g_aux_bezel_alpha = value; }
 void set_ded_annun_bezel(bool value) { g_ded_annun_bezel = value; }
 void set_scale_h_shift(int value) { g_scale_h_shift = value; }
 void set_scale_v_shift(int value) { g_scale_v_shift = value; }
+void set_display_screen(int value) { g_alloc_screen = value; }
 void set_score_screen(int value) { g_score_screen = value; }
 
 void set_yuv_lock_blank(bool value)
@@ -1525,7 +1539,7 @@ void vid_toggle_fullscreen()
          (flags & SDL_WINDOW_MAXIMIZED) != 0) {
 
         if ((flags & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0) {
-            SDL_GetDisplayBounds(0, &g_logical_rect);
+            SDL_GetDisplayBounds(g_display, &g_logical_rect);
         } else {
             g_logical_rect.w = g_displaymode.w;
             g_logical_rect.h = g_displaymode.h;
@@ -1542,9 +1556,13 @@ void vid_toggle_fullscreen()
     g_fullscreen = false;
     format_window_render();
     notify_stats(g_overlay_width, g_overlay_height, "u");
+
+    SDL_Rect dimensions;
+    SDL_GetDisplayBounds(g_display, &dimensions);
+
     SDL_SetWindowSize(g_window, g_viewport_width, g_viewport_height);
-    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED,
-                          SDL_WINDOWPOS_CENTERED);
+    SDL_SetWindowPosition(g_window, dimensions.x + ((dimensions.w - g_viewport_width) >> 1),
+                dimensions.y + ((dimensions.h - g_viewport_height) >> 1));
 }
 
 void vid_toggle_scanlines()
@@ -1587,16 +1605,15 @@ void vid_scoreboard_switch()
     if (!g_sb_window) return;
 
     char s[16] = "screen: 0";
-    int displays = SDL_GetNumVideoDisplays();
 
-    if (displays > 1) {
-        SDL_Rect displayDimensions[displays];
+    if (g_displays > 1) {
+        SDL_Rect displayDimensions[g_displays];
         int winId = SDL_GetWindowDisplayIndex(g_sb_window);
 
-        for (int i = 0; i < displays; i++)
+        for (int i = 0; i < g_displays; i++)
             SDL_GetDisplayBounds(i, &displayDimensions[i]);
 
-        if (++winId == displays) winId = 0;
+        if (++winId == g_displays) winId = 0;
         snprintf(s, sizeof(s), "screen: %d", (unsigned char)winId);
 
         SDL_SetWindowPosition(g_sb_window,
@@ -1963,6 +1980,8 @@ void take_screenshot()
         { LOGW << fmt("'%s' directory does not exist.", dir); return; }
     else if (!(info.st_mode & S_IFDIR))
         { LOGW << fmt("'%s' is not a directory.", dir); return; }
+    else if (g_display != 0)
+        { LOGE << "Screenshots require the primary display."; return; }
 
     SDL_Surface *screenshot = NULL;
 

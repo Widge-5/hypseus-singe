@@ -220,6 +220,7 @@ void set_ded_annun_bezel(bool bEnabled);
 void set_aux_bezel_alpha(int8_t value);
 void set_scale_h_shift(int value);
 void set_scale_v_shift(int value);
+void set_display_screen(int value);
 void set_score_screen(int value);
 void set_fRotateDegrees(float fDegrees);
 void set_yuv_scale(int value, uint8_t axis);

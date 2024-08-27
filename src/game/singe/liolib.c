@@ -164,6 +164,16 @@ static int io_open (lua_State *L) {
   const char *mode = luaL_optstring(L, 2, "r");
   FILE **pf = newfile(L);
   *pf = fopen(filename, mode);
+  if (*pf == NULL) {
+    int len = strlen(filename) + RETRO_PAD;
+    char retroname[RETRO_MAXPATH] = {0};
+    if (len > RETRO_MAXPATH) len = RETRO_MAXPATH;
+    if (get_retropath())
+      lua_retropath(filename, retroname, len);
+    else
+      lua_rampath(filename, retroname, len);
+    *pf = fopen(retroname, mode);
+  }
   return (*pf == NULL) ? pushresult(L, 0, filename) : 1;
 }
 
@@ -281,6 +291,16 @@ static int io_lines (lua_State *L) {
     const char *filename = luaL_checkstring(L, 1);
     FILE **pf = newfile(L);
     *pf = fopen(filename, "r");
+    if (*pf == NULL) {
+      int len = strlen(filename) + RETRO_PAD;
+      char retroname[RETRO_MAXPATH] = {0};
+      if (len > RETRO_MAXPATH) len = RETRO_MAXPATH;
+      if (get_retropath())
+        lua_retropath(filename, retroname, len);
+      else
+        lua_rampath(filename, retroname, len);
+      *pf = fopen(retroname, "r");
+    }
     if (*pf == NULL)
       fileerror(L, 1, filename);
     aux_lines(L, lua_gettop(L), 1);

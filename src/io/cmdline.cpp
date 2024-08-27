@@ -1084,6 +1084,13 @@ bool parse_cmd_line(int argc, char **argv)
                     result = false;
                 }
             }
+            else if (strcasecmp(s, "-screen") == 0) {
+                get_next_word(s, sizeof(s));
+                i = atoi(s);
+
+                if (i >= 1 && i <= 254)
+                    video::set_display_screen(i);
+            }
             // run hypseus in fullscreen mode
             else if (strcasecmp(s, "-fullscreen") == 0) {
                 video::set_fullscreen(true);
