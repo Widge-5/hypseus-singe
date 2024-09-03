@@ -178,6 +178,7 @@ static int sep_sprite_rotatescale(lua_State *L);
 static int sep_sprite_rotateframe(lua_State *L);
 static int sep_sprite_animate_rotated(lua_State *L);
 static int sep_sprite_quality(lua_State *L);
+static int sep_sprite_loadata(lua_State *L);
 static int sep_set_gamename(lua_State *L);
 static int sep_singe_wants_crosshair(lua_State *L);
 static int sep_get_number_of_mice(lua_State *L);

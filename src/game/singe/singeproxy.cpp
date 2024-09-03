@@ -1118,6 +1118,7 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "spriteRotateFrame",      sep_sprite_rotateframe);
     lua_register(g_se_lua_context, "spriteDrawRotatedFrame", sep_sprite_animate_rotated);
     lua_register(g_se_lua_context, "spriteResetColorKey",    sep_sprite_color_rekey);
+    lua_register(g_se_lua_context, "spriteLoadData",         sep_sprite_loadata);
     lua_register(g_se_lua_context, "spriteFrameHeight",      sep_sprite_height);
     lua_register(g_se_lua_context, "spriteFrameWidth",       sep_frame_width);
     lua_register(g_se_lua_context, "takeScreenshot",         sep_screenshot);
@@ -2521,6 +2522,52 @@ static int sep_sprite_unload(lua_State *L)
         }
     }
     return 0;
+}
+
+static int sep_sprite_loadata(lua_State *L)
+{
+    int n = lua_gettop(L);
+    int result = -1;
+    SDL_Surface *temp = NULL;
+
+    if (n == 1 && lua_type(L, 1) == LUA_TSTRING)
+    {
+        size_t len;
+        const char *data = lua_tolstring(L, 1, &len);
+        SDL_RWops *ops = SDL_RWFromConstMem(data, (int)len);
+
+        if (ops != NULL)
+        {
+            temp = IMG_Load_RW(ops, 1);
+
+            if (temp) {
+
+                g_spriteT sprite;
+                if (g_firstload) sep_sprite_reset();
+
+                SDL_SetSurfaceRLE(temp, SDL_TRUE);
+                SDL_SetColorKey(temp, SDL_TRUE, 0x0);
+                sprite.store = sep_copy_surface(temp, NULL);
+                sprite.present = temp;
+                sprite.scaleX = 1.0;
+                sprite.scaleY = 1.0;
+                sprite.gfx = true;
+                sprite.frame = NULL;
+#if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
+                sprite.animation = NULL;
+#endif
+                g_sprites.push_back(sprite);
+                result = g_sprites.size() - 1;
+
+            } else {
+                sep_trace(L);
+                sep_die("Unable to load data as a sprite");
+                return result;
+            }
+        }
+    }
+   lua_pushnumber(L, result);
+   return 1;
 }
 
 static int sep_sprite_load(lua_State *L)
