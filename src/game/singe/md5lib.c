@@ -14,6 +14,8 @@
 
 #include "md5.h"
 
+#define MAXKEY	   256
+#define BLOCKSIZE  16
 
 /**
 *  Hash function. Returns a hash for a given string.
@@ -76,11 +78,6 @@ static void checkseed (lua_State *L) {
   }
 }
 
-
-#define MAXKEY	256
-#define BLOCKSIZE	16
-
-#define lua_rawlen lua_objlen
 
 void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup) {
   luaL_checkstack(L, nup+1, "too many upvalues");
@@ -188,13 +185,17 @@ static int decrypt (lua_State *L) {
   const char *seed = cyphertext+1;
   int lblock;
   char block[BLOCKSIZE+MAXKEY];
-  luaL_argcheck(L, lcyphertext >= lseed+1 && lseed <= BLOCKSIZE, 1,
-                 "invalid cyphered string");
+  if (!(lcyphertext >= lseed + 1 && lseed <= BLOCKSIZE)) {
+    lua_pushlstring(L, NULL, 0);
+    lua_pushboolean(L, 0);
+    return 2;
+  }
   cyphertext += lseed+1;
   lcyphertext -= lseed+1;
   lblock = initblock(L, seed, lseed, block);
   decodestream(L, cyphertext, lcyphertext, block, lblock);
-  return 1;
+  lua_pushboolean(L, 1);
+  return 2;
 }
 
 
