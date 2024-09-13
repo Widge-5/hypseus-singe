@@ -31,7 +31,7 @@ static int lmd5 (lua_State *L) {
   return 1;
 }
 
-static int sumhexa (lua_State *L) {
+static int hmd5 (lua_State *L) {
   static char tab[] = { '0', '1', '2', '3', '4', '5', '6', '7',
    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
   int i;
@@ -216,7 +216,7 @@ static void set_info (lua_State *L) {
 
 static struct luaL_Reg md5lib[] = {
   {"sum", lmd5},
-  {"sumhexa", sumhexa},
+  {"hexsum", hmd5},
   {"exor", ex_or},
   {"crypt", crypt},
   {"decrypt", decrypt},
