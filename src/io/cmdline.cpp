@@ -1174,12 +1174,12 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-scalefactor") == 0) {
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
-                if (i >= 25 && i <= 100) {
+                if (i >= 25 && i <= 200) {
                     snprintf(s, sizeof(s), "Scaling video by %d%%", i);
                     printline(s);
                     video::set_scalefactor((Uint16)i);
                 } else {
-                    printerror("Scaling values: 25 to 100");
+                    printerror("Scaling values: 25 to 200");
                     result = false;
                 }
             }
