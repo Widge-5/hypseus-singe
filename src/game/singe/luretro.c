@@ -86,8 +86,8 @@ void lua_retropath(const char *src, char *dst, int len)
 
     if (inPath(src, "Framework")) path = PATH_FRAMEWORK;
     if (inPath(src, "singe/")) {
-         folder = PATH_SINGE;
-         src += 6;
+        folder = PATH_SINGE;
+        src += 6;
     }
 
     for (int i = 0; i < (len - 2); src++, i++) {

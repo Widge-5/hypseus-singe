@@ -1124,6 +1124,8 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "takeScreenshot",         sep_screenshot);
     lua_register(g_se_lua_context, "rewriteStatus",          sep_lua_rewrite);
     lua_register(g_se_lua_context, "vldpGetScale",           sep_mpeg_get_scale);
+    lua_register(g_se_lua_context, "vldpFocusArea",          sep_mpeg_focus_area);
+    lua_register(g_se_lua_context, "vldpResetFocus",         sep_mpeg_reset_focus);
     lua_register(g_se_lua_context, "vldpGetYUVPixel",        sep_mpeg_get_rawpixel);
     lua_register(g_se_lua_context, "dofile",                 sep_doluafile);
 
@@ -1245,7 +1247,8 @@ void sep_startup(const char *data)
         if (g_pSingeIn->get_retro_path()) sep_set_retropath();
 
         if (!g_altgame.empty()) {
-            LOGW << sep_fmt("'%s': altname has no meaning in this loading context.", g_altgame.c_str());
+            LOGI << sep_fmt("'%s': -usealt is only necessary with zip ROMs.",
+                                g_altgame.c_str());
         }
 
         if (luaL_dofile(g_se_lua_context, data) != 0)
@@ -1631,6 +1634,35 @@ static int sep_mpeg_get_scale(lua_State *L)
 {
     lua_pushnumber(L, g_pSingeIn->get_scalefactor());
     return 1;
+}
+
+static int sep_mpeg_focus_area(lua_State *L)
+{
+    int n = lua_gettop(L);
+    int x, y, w, h;
+
+    if (n == 4) {
+        if (lua_isnumber(L, 1)) {
+            x = lua_tonumber(L, 1);
+            if (lua_isnumber(L, 2)) {
+                y = lua_tonumber(L, 2);
+                if (lua_isnumber(L, 3)) {
+                    w = lua_tonumber(L, 3);
+                    if (lua_isnumber(L, 4)) {
+                        h = lua_tonumber(L, 4);
+                        video::set_yuv_rect(x, y, w, h);
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+static int sep_mpeg_reset_focus(lua_State *L)
+{
+    video::reset_yuv_rect();
+    return 0;
 }
 
 static int sep_vldp_getvolume(lua_State *L)

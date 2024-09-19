@@ -428,9 +428,8 @@ bool singe::handle_cmdline_arg(const char *arg)
         bResult = true;
 
         for (int i = 0; i < len && s[i] != '\0'; ++i) {
-            if (!isalnum(s[i])
-                && s[i] != int('_')
-                && s[i] != int('-')) {
+            if (!isalnum(s[i]) && s[i] != int('_')
+                    && s[i] != int('-')) {
                 bResult = false;
             }
         }
@@ -449,26 +448,15 @@ bool singe::handle_cmdline_arg(const char *arg)
         get_next_word(s, sizeof(s));
         bResult = true;
 
-        for (int i = 0; i < len && s[i] != '\0'; ++i) {
-            if (!isalnum(s[i])
-                && s[i] != int('/')
-                && s[i] != int('.')
-                && s[i] != int('-')
-                && s[i] != int('_')
-#ifdef WIN32
-                && s[i] != int(' ')
-                && s[i] != int(':')
-                && s[i] != int('\\')
-#endif
-            )
-            {
-                printerror("SINGE: Invalid path characters specified");
-                bResult = false;
-            }
+        if (!safe_dir(s, len)) {
+            printerror("SINGE: Invalid path characters specified");
+            bResult = false;
         }
 
         if (bResult) {
-            m_strDataPaths = s + string("/");
+            m_strDataPaths = s;
+            if (m_strDataPaths.back() != '/')
+                m_strDataPaths += '/';
             game::set_console_flag(true);
         }
     }

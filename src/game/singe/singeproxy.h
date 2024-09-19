@@ -112,6 +112,8 @@ static int sep_mpeg_get_pixel(lua_State *L);
 static int sep_mpeg_get_rawpixel(lua_State *L);
 static int sep_mpeg_get_width(lua_State *L);
 static int sep_mpeg_get_scale(lua_State *L);
+static int sep_mpeg_focus_area(lua_State *L);
+static int sep_mpeg_reset_focus(lua_State *L);
 static int sep_vldp_setvolume(lua_State *L);
 static int sep_vldp_getvolume(lua_State *L);
 static int sep_overlay_clear(lua_State *L);

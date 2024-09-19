@@ -1088,7 +1088,7 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
 
-                if (i >= 1 && i <= 254)
+                if (i > 0 && i < 255)
                     video::set_display_screen(i);
             }
             // run hypseus in fullscreen mode
@@ -1161,6 +1161,17 @@ bool parse_cmd_line(int argc, char **argv)
                     result = false;
                  }
             }
+            else if (strcasecmp(s, "-bezeldir") == 0) {
+                get_next_word(s, sizeof(s));
+                bool path = true;
+
+                if (!safe_dir(s, 0xff)) {
+                    printerror("Invalid charaters in bezelpath");
+                    path = result = false;
+                }
+
+                if (path) video::set_bezel_path(s);
+            }
             // by DBX - This switches logical axis calculations
             else if (strcasecmp(s, "-vertical_screen") == 0) {
                 video::set_vertical_orientation(true);
@@ -1174,12 +1185,12 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-scalefactor") == 0) {
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
-                if (i >= 25 && i <= 200) {
+                if (i >= 25 && i <= 100) {
                     snprintf(s, sizeof(s), "Scaling video by %d%%", i);
                     printline(s);
                     video::set_scalefactor((Uint16)i);
                 } else {
-                    printerror("Scaling values: 25 to 200");
+                    printerror("Scaling values: 25 to 100");
                     result = false;
                 }
             }

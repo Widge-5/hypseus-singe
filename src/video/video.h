@@ -205,6 +205,7 @@ void set_subtitle_display(char *);
 void set_LDP1450_enabled(bool bEnabled);
 void set_singe_blend_sprite(bool bEnabled);
 void set_bezel_file(const char *);
+void set_bezel_path(const char *);
 void set_bezel_reverse(bool display);
 void set_aspect_change(int aspectWidth, int aspectHeight);
 void set_sb_window_position(int, int);
@@ -224,6 +225,8 @@ void set_display_screen(int value);
 void set_score_screen(int value);
 void set_fRotateDegrees(float fDegrees);
 void set_yuv_scale(int value, uint8_t axis);
+void set_yuv_rect(int, int, int, int);
+void reset_yuv_rect();
 
 void set_vertical_orientation(bool);
 void format_fullscreen_render();
