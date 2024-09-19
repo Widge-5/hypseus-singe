@@ -1,20 +1,16 @@
 #pragma once
+#include <vector>
 #include <plog/Appenders/IAppender.h>
 #include <plog/Util.h>
-#include <vector>
 
-#ifdef PLOG_DEFAULT_INSTANCE // for backward compatibility
-#   define PLOG_DEFAULT_INSTANCE_ID PLOG_DEFAULT_INSTANCE
-#endif
-
-#ifndef PLOG_DEFAULT_INSTANCE_ID
-#   define PLOG_DEFAULT_INSTANCE_ID 0
+#ifndef PLOG_DEFAULT_INSTANCE
+#   define PLOG_DEFAULT_INSTANCE 0
 #endif
 
 namespace plog
 {
-    template<int instanceId>
-    class Logger : public util::Singleton<Logger<instanceId> >, public IAppender
+    template<int instance>
+    class Logger : public util::Singleton<Logger<instance> >, public IAppender
     {
     public:
         Logger(Severity maxSeverity = none) : m_maxSeverity(maxSeverity)
@@ -64,14 +60,14 @@ namespace plog
         std::vector<IAppender*> m_appenders;
     };
 
-    template<int instanceId>
-    inline Logger<instanceId>* get()
+    template<int instance>
+    inline Logger<instance>* get()
     {
-        return Logger<instanceId>::getInstance();
+        return Logger<instance>::getInstance();
     }
 
-    inline Logger<PLOG_DEFAULT_INSTANCE_ID>* get()
+    inline Logger<PLOG_DEFAULT_INSTANCE>* get()
     {
-        return Logger<PLOG_DEFAULT_INSTANCE_ID>::getInstance();
+        return Logger<PLOG_DEFAULT_INSTANCE>::getInstance();
     }
 }

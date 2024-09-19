@@ -27,9 +27,8 @@
 #include "parallel.h"
 #include "numstr.h"
 
-// This used to say: this code only applies to x86-based systems, I believe
-// But MAC_OSX but is x86 has no parallel port...
-#if defined(NATIVE_CPU_X86) && !defined(MAC_OSX)
+// this code only applies to x86-based systems, I believe
+#ifdef NATIVE_CPU_X86
 
 // Code to control the parallel port
 

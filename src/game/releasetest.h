@@ -26,7 +26,7 @@
 #define RELEASETEST_H
 
 #ifdef MAC_OSX
-#include "config.h"
+#include "mmxdefs.h"
 #endif
 
 #include <vector>

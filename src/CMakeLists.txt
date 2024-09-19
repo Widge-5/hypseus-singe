@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-set(PKG_VERSION "v2.11.2")
+set(PKG_VERSION "v2.11.3-RPi")
 
 project(hypseus)
 
@@ -10,7 +10,6 @@ option(VLDP_DEBUG       "VLDP Debug"            OFF)
 option(CPU_DEBUG        "CPU Debug"             OFF)
 option(BUILD_SINGE      "Singe"                 ON)
 option(BUILDBOT         "Buildbot"              OFF)
-option(ASAN             "Address Sanitizer"     OFF)
 
 # Abstract out -retropath ES extension: Use .singe NOT .daphne
 option(ABSTRACT_SINGE   "Redefine Singe LUA Rewrites"     OFF)
@@ -32,10 +31,6 @@ endif()
 
 add_compile_options(-Wall)
 
-if (ASAN)
-    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
-endif()
-
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 include(TargetArch)
@@ -52,14 +47,13 @@ include(GNUInstallDirs)
 include(GetGitRevisionDescription)
 include(InstallRequiredSystemLibraries)
 include(FindPkgConfig)
-include(ExternalProject)
-include(BuildLibMPEG2)
 
 use_cxx11( )
 
 PKG_SEARCH_MODULE(SDL2 REQUIRED sdl2)
 PKG_SEARCH_MODULE(SDL2_TTF REQUIRED SDL2_ttf)
-build_libmpeg2( )
+PKG_SEARCH_MODULE(SDL2_IMAGE REQUIRED SDL2_image)
+PKG_SEARCH_MODULE(MPEG2 REQUIRED libmpeg2)
 
 message(STATUS "Target: ${CMAKE_SYSTEM_NAME} ${CMAKE_TARGET_ARCHITECTURES}")
 
@@ -87,6 +81,7 @@ message(STATUS "Version: ${VER_TAG}")
 include_directories(
     ${PROJECT_BINARY_DIR} # config.h
     ${SDL2_INCLUDE_DIRS}
+    ${MPEG2_INCLUDE_DIRS}
 )
 
 if( "${CMAKE_TARGET_ARCHITECTURES}" MATCHES "i386" )
@@ -113,7 +108,6 @@ add_subdirectory(timer)
 add_subdirectory(video)
 add_subdirectory(vldp)
 
-add_dependencies( vldp libmpeg2 )
 add_dependencies( ldp-out vldp )
 add_dependencies( game vldp )
 add_dependencies( sound vldp )
@@ -129,10 +123,6 @@ endif(APPLE)
 
 add_executable( hypseus hypseus.cpp globals.h )
 target_link_libraries( hypseus plog io timer sound video cpu game ${Vorbis_Enc_LIBRARY} Vorbis::vorbis ${OGG_LIBRARIES} ${VORBISFILE_LIBRARIES} ${Vorbis_File_LIBRARY} ${SDL2_LIBRARIES} ${SDL2TTF_LIBRARY} ${SDL2_IMAGE_LIBRARY} ${LIBZIP_LIBRARY} )
-
-if(ASAN)
-    target_link_options(hypseus PRIVATE -fsanitize=address -fno-omit-frame-pointer -g)
-endif()
 
 #[[
 set_source_files_properties( testvldp.cpp PROPERTIES COMPILE_FLAGS -DSHOW_FRAMES)

@@ -1,5 +1,4 @@
 #pragma once
-#include <plog/Record.h>
 
 namespace plog
 {

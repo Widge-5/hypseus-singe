@@ -1,5 +1,4 @@
 #pragma once
-#include <plog/Appenders/IAppender.h>
 #include <android/log.h>
 
 namespace plog
