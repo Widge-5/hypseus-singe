@@ -1338,9 +1338,8 @@ void allocate_rect(SDL_Rect** rect)
 
 void reset_yuv_rect()
 {
-     // delete g_yuv_rect;
-     // g_yuv_rect = copy_rect(g_yuv_reset);
-	 g_yuv_rect = g_yuv_reset;
+    delete g_yuv_rect;
+    g_yuv_rect = copy_rect(g_yuv_reset);
 }
 
 void set_yuv_rect(int x, int y, int w, int h)
@@ -1349,10 +1348,10 @@ void set_yuv_rect(int x, int y, int w, int h)
 
      if (!init) {
          g_yuv_reset = copy_rect(g_yuv_rect);
-         allocate_rect(&g_yuv_rect);
          init = true;
      }
 
+     allocate_rect(&g_yuv_rect);
      *g_yuv_rect = {x, y, w, h};
 }
 
