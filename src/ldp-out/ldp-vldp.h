@@ -43,10 +43,6 @@ struct fileframes {
 
 // these values can be OR'd together to create multiple filter effects
 const int FILTER_NONE  = 0;        // no filtering
-const int FILTER_BLEND = (1 << 0); // blend fields together (cheap de-interlace)
-const int FILTER_SCANLINES = (1 << 1); // make every other field black (to give
-                                       // it a more authentic look, this also
-                                       // de-interlaces for free)
 
 #include "../io/dll.h"
 #include "ldp.h"
@@ -176,6 +172,7 @@ class ldp_vldp : public ldp
     void enable_audio2();
     void disable_audio1();
     void disable_audio2();
+    bool switch_altaudio(const char *);
 
   private:
     void set_audiocopy_callback();

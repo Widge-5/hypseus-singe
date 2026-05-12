@@ -1,7 +1,7 @@
 /*
 * ____ DAPHNE COPYRIGHT NOTICE ____
 *
-* Copyright (C) 2006 Scott C. Duensing, 2024 DirtBagXon
+* Copyright (C) 2006 Scott C. Duensing, 2025 DirtBagXon
 *
 * This file is part of DAPHNE, a laserdisc arcade game emulator
 *
@@ -55,14 +55,16 @@ struct singe_in_info g_SingeIn;
 ////////////////////////////////////////////////////////////////////////////////
 
 // by RDG2010
-const int singe::i_full_keybd_defs[] = {SDLK_BACKSPACE,    SDLK_TAB,
-                                        SDLK_RETURN,       SDLK_PAUSE,
-                                        SDLK_SPACE,        SDLK_QUOTE,
-                                        SDLK_COMMA,        SDLK_SEMICOLON,
-                                        SDLK_EQUALS,       SDLK_LEFTBRACKET,
-                                        SDLK_RIGHTBRACKET, SDLK_BACKSLASH,
-                                        SDLK_SLASH,        SDLK_DELETE,
-                                        SDLK_PERIOD};
+const int singe::i_full_keybd_defs[] = {
+    SDLK_BACKSPACE,    SDLK_TAB,
+    SDLK_RETURN,       SDLK_PAUSE,
+    SDLK_SPACE,        SDLK_QUOTE,
+    SDLK_COMMA,        SDLK_SEMICOLON,
+    SDLK_EQUALS,       SDLK_LEFTBRACKET,
+    SDLK_RIGHTBRACKET, SDLK_BACKSLASH,
+    SDLK_SLASH,        SDLK_DELETE,
+    SDLK_PERIOD
+};
 
 #define KEYBD_ARRAY_SIZE 15
 
@@ -83,10 +85,10 @@ singe::singe() : m_pScoreboard(NULL)
     m_bezel_scoreboard        = false;
 
     m_overlay_size            = 0;
-    m_upgrade_overlay         = false;
-    m_muteinit                = false;
-    m_notarget                = false;
+    m_upgrade_overlay         = 0;
+    m_crosshair               = true;
     m_running                 = false;
+    m_zlua                    = false;
 
     singe_xratio              = 0.0;
     singe_yratio              = 0.0;
@@ -97,6 +99,9 @@ singe::singe() : m_pScoreboard(NULL)
     // by RDG2010
     m_game_type               = GAME_SINGE;
     i_keyboard_mode           = KEYBD_NORMAL;
+
+    i_keyboard_escape         = SDLK_ESCAPE;
+    i_keyboard_quit           = SWITCH_QUIT;
 }
 
 bool singe::init()
@@ -117,6 +122,7 @@ bool singe::init()
         g_SingeIn.disable_audio2      = disable_audio2;
         g_SingeIn.enable_audio1       = enable_audio1;
         g_SingeIn.enable_audio2       = enable_audio2;
+        g_SingeIn.switch_altaudio     = switch_altaudio;
         g_SingeIn.framenum_to_frame   = framenum_to_frame;
         g_SingeIn.get_current_frame   = get_current_frame;
         g_SingeIn.pre_change_speed    = pre_change_speed;
@@ -134,11 +140,10 @@ bool singe::init()
         g_SingeIn.g_vldp_info         = g_vldp_info;
         g_SingeIn.get_video_height    = video::get_video_height;
         g_SingeIn.get_video_width     = video::get_video_width;
-        g_SingeIn.get_scalefactor     = video::get_scalefactor;
         g_SingeIn.draw_string         = video::draw_string;
         g_SingeIn.samples_play_sample = samples::play;
         g_SingeIn.set_last_error      = set_last_error;
-        g_SingeIn.get_retro_path      = get_retro_path;
+        g_SingeIn.get_es_path         = get_es_path;
         g_SingeIn.request_screenshot  = request_screenshot;
 
         // by RDG2010
@@ -176,6 +181,7 @@ bool singe::init()
         g_SingeIn.cfm_get_number_of_mice = gfm_number_of_mice;
 
         // Extended args
+        g_SingeIn.cfm_joymouse_enable    = gfm_joymouse_enable;
         g_SingeIn.cfm_get_xratio         = gfm_get_xratio;
         g_SingeIn.cfm_get_yratio         = gfm_get_yratio;
         g_SingeIn.cfm_get_fvalue         = gfm_get_fvalue;
@@ -183,6 +189,7 @@ bool singe::init()
         g_SingeIn.cfm_set_overlaysize    = gfm_set_overlaysize;
         g_SingeIn.cfm_set_custom_overlay = gfm_set_custom_overlay;
         g_SingeIn.cfm_set_gamepad_rumble = gfm_set_gamepad_rumble;
+        g_SingeIn.cfm_block_quit         = gfm_block_quit;
 
         // Active bezel
         g_SingeIn.cfm_bezel_enable       = gfm_bezel_enable;
@@ -237,25 +244,38 @@ bool singe::init()
 void singe::start()
 {
     char s1[100];
-    int intTimer = 0;
     int intReturn = 0;
     snprintf(s1, sizeof(s1), "Starting Singe version: %s", show_version().c_str());
     printline(s1);
+
+    m_vid_w = g_SingeIn.get_video_width();
+    m_vid_h = g_SingeIn.get_video_height();
+    if (g_game->get_manymouse()) singe_joymouse = false;
+
     g_pSingeOut->sep_set_surface(m_video_overlay_width, m_video_overlay_height);
     g_pSingeOut->sep_set_static_pointers(&m_disc_fps, &m_uDiscFPKS);
     g_pSingeOut->sep_datapaths(m_strDataPaths.c_str());
-    g_pSingeOut->sep_altgame(m_zipAltName.c_str());
-    g_pSingeOut->sep_startup(m_strGameScript.c_str());
 
-    bool blanking = g_local_info.blank_during_searches | g_local_info.blank_during_skips;
-    int delay = g_ldp->get_min_seek_delay() >> 4;
+    if (m_zlua) g_pSingeOut->sep_rom_compressed();
+    g_pSingeOut->sep_altgame(m_zipAltName.c_str());
+
+    g_pSingeOut->sep_minseek(g_ldp->get_min_seek_delay() >> 4);
     g_ldp->set_seek_frames_per_ms(0);
     g_ldp->set_min_seek_delay(0);
 
-    if (m_upgrade_overlay) g_pSingeOut->sep_upgrade_overlay();
+    switch (m_upgrade_overlay) {
+    case (1 << 0):
+        g_pSingeOut->sep_upgrade_overlay();
+        break;
+    case (1 << 1):
+        g_pSingeOut->sep_fullalpha_overlay();
+        break;
+    }
+
+    if (!m_crosshair) g_pSingeOut->sep_no_crosshair();
     if (singe_trace) g_pSingeOut->sep_enable_trace();
-    if (m_muteinit) g_pSingeOut->sep_mute_vldp_init();
-    if (m_notarget) g_pSingeOut->sep_no_crosshair();
+
+    g_pSingeOut->sep_startup(m_strGameScript.c_str());
 
     // if singe didn't get an error during startup...
     if (!get_quitflag()) {
@@ -267,17 +287,8 @@ void singe::start()
                 m_video_overlay_needs_update = true;
             }
 
-            if (g_js.bjx||g_js.bjy) {
-                JoystickMotion();
-            }
-
-            if (blanking) {
-                if (video::get_video_blank()) {
-                    if (intTimer > delay)
-                        palette::set_yuv_transparency(true);
-                    intTimer++;
-                } else intTimer = 0;
-            }
+            if (g_js.jrelx | g_js.jrely)
+                ProcessJoyStruct();
 
             blit();
             SDL_check_input();
@@ -314,22 +325,18 @@ void singe::input_enable(Uint8 input, Sint8 mouseID)
         case SWITCH_UP:
            g_js.ypos = -abs(g_js.slide);
            g_js.jrely--;
-           g_js.bjy = true;
            break;
         case SWITCH_DOWN:
            g_js.ypos = g_js.slide;
            g_js.jrely++;
-           g_js.bjy = true;
            break;
         case SWITCH_LEFT:
            g_js.xpos = -abs(g_js.slide);
            g_js.jrelx--;
-           g_js.bjx = true;
            break;
         case SWITCH_RIGHT:
            g_js.xpos = g_js.slide;
            g_js.jrelx++;
-           g_js.bjx = true;
            break;
         }
     }
@@ -346,13 +353,11 @@ void singe::input_disable(Uint8 input, Sint8 mouseID)
         case SWITCH_DOWN:
            g_js.ypos = 0;
            g_js.jrely = 0;
-           g_js.bjy = false;
            break;
         case SWITCH_LEFT:
         case SWITCH_RIGHT:
            g_js.xpos = 0;
            g_js.jrelx = 0;
-           g_js.bjx = false;
            break;
         }
     }
@@ -363,30 +368,22 @@ void singe::input_disable(Uint8 input, Sint8 mouseID)
 
 void singe::OnMouseMotion(Uint16 x, Uint16 y, Sint16 xrel, Sint16 yrel, Sint8 mouseID)
 {
-    if (g_pSingeOut) {
+    if (g_pSingeOut)
         g_pSingeOut->sep_do_mouse_move(x, y, xrel, yrel, mouseID);
-    }
 }
 
-void singe::JoystickMotion()
+void singe::ProcessJoyStruct()
 {
-    Uint16 cur_w = g_SingeIn.get_video_width();
-    Uint16 cur_h = g_SingeIn.get_video_height();
-    static bool s = false;
+    g_js.xmov += g_js.xpos;
+    g_js.ymov += g_js.ypos;
 
-    if (!s) { g_js.xmov = cur_w/4; g_js.ymov = cur_h/4; s = true; }
+    if (g_js.xmov < 0) { g_js.xmov = 0; g_js.jrelx = 0; }
+    else if (g_js.xmov > m_vid_w) { g_js.xmov = m_vid_w; g_js.jrelx = 0; }
 
-    g_js.xmov = g_js.xpos + g_js.xmov;
-    g_js.ymov = g_js.ypos + g_js.ymov;
+    if (g_js.ymov < 0) { g_js.ymov = 0; g_js.jrely = 0; }
+    else if (g_js.ymov > m_vid_h) { g_js.ymov = m_vid_h; g_js.jrely = 0; }
 
-    if (g_js.xmov > cur_w) { g_js.xmov = cur_w; g_js.jrelx = 0; }
-    if (g_js.ymov > cur_h) { g_js.ymov = cur_h; g_js.jrely = 0; }
-    if (g_js.xmov < 0) { g_js.xmov = abs(g_js.xmov); g_js.jrelx = 0; }
-    if (g_js.ymov < 0) { g_js.ymov = abs(g_js.ymov); g_js.jrely = 0; }
-
-    if (g_pSingeOut) {
-        g_pSingeOut->sep_do_mouse_move(g_js.xmov, g_js.ymov, g_js.jrelx, g_js.jrely, NOMOUSE);
-    }
+    g_pSingeOut->sep_do_mouse_move(g_js.xmov, g_js.ymov, g_js.jrelx, g_js.jrely, NOMOUSE);
 }
 
 // game-specific command line arguments handled here
@@ -402,10 +399,15 @@ bool singe::handle_cmdline_arg(const char *arg)
     if (!bInit) {
         game::set_32bit_overlay(true);
         game::set_dynamic_overlay(true);
-        m_upgrade_overlay = bInit = true;
+        m_upgrade_overlay |= (1 << 0);
+        bInit = true;
     }
 
     if (strcasecmp(arg, "-script") == 0 || strcasecmp(arg, "-zlua") == 0) {
+
+        if (strcasecmp(arg, "-zlua") == 0)
+            m_zlua = true;
+
         get_next_word(s, sizeof(s));
 
         if (mpo_file_exists(s)) {
@@ -427,9 +429,14 @@ bool singe::handle_cmdline_arg(const char *arg)
         get_next_word(s, sizeof(s));
         bResult = true;
 
+        if (s[0] == 0) {
+            printerror("altscript switch used but no name specified!");
+            bResult = false;
+        }
+
         for (int i = 0; i < len && s[i] != '\0'; ++i) {
             if (!isalnum(s[i]) && s[i] != int('_')
-                    && s[i] != int('-')) {
+                    && s[i] != int('-') && s[i] != int('.')) {
                 bResult = false;
             }
         }
@@ -440,15 +447,19 @@ bool singe::handle_cmdline_arg(const char *arg)
         video::set_singe_blend_sprite(true);
         bResult = true;
     }
-    else if (strcasecmp(arg, "-retropath") == 0) {
-        game::set_console_flag(true);
+    else if (strcasecmp(arg, "-espath") == 0 || strcasecmp(arg, "-retropath") == 0) {
+        game::set_es_flag(true);
         bResult = true;
     }
     else if (strcasecmp(arg, "-singedir") == 0) {
         get_next_word(s, sizeof(s));
         bResult = true;
 
-        if (!safe_dir(s, len)) {
+        if (s[0] == 0) {
+            printerror("singedir switch used but no singedir specified!");
+            bResult = false;
+        }
+        else if (!safe_dir(s, len)) {
             printerror("SINGE: Invalid path characters specified");
             bResult = false;
         }
@@ -457,20 +468,24 @@ bool singe::handle_cmdline_arg(const char *arg)
             m_strDataPaths = s;
             if (m_strDataPaths.back() != '/')
                 m_strDataPaths += '/';
-            game::set_console_flag(true);
+            game::set_es_flag(true);
         }
     }
-    else if (strcasecmp(arg, "-bootsilent") == 0) {
-        m_muteinit = true;
-        bResult = true;
+    else if (strcasecmp(arg, "-fullalpha") == 0) {
+
+        if (m_upgrade_overlay & (1 << 0)) {
+            printline("Enabling Singe full alpha-range overlay...");
+            m_upgrade_overlay = (m_upgrade_overlay & ~(1 << 0)) | (1 << 1);
+            bResult = true;
+        }
     }
     else if (strcasecmp(arg, "-8bit_overlay") == 0) {
         game::set_32bit_overlay(false);
-        m_upgrade_overlay = false;
+        m_upgrade_overlay = 0;
         bResult = true;
     }
     else if (strcasecmp(arg, "-nocrosshair") == 0) {
-        m_notarget = true;
+        m_crosshair = false;
         bResult = true;
     }
     else if (strcasecmp(arg, "-sinden") == 0) {
@@ -537,11 +552,11 @@ bool singe::handle_cmdline_arg(const char *arg)
         get_next_word(s, sizeof(s));
         i = atoi(s);
 
-        if ((i > 0) && (i < 21)) {
-           g_js.slide = i;
-           bResult = true;
+        if ((i > 0) && (i <= 20)) {
+            g_js.slide = i;
+            bResult = true;
         } else {
-           printerror("SINGE: js_range out of scope: <1-20>");
+            printerror("SINGE: js_range out of scope: <1-20>");
         }
     }
     return bResult;
@@ -639,7 +654,7 @@ void singe::repaint()
                    break;
                 default:
                    ScoreboardCollection::AddType(pScoreboard, ScoreboardFactory::IMAGE);
-                   if (!m_upgrade_overlay && g_bezelboard.type == SINGE_SB_PANEL) {
+                   if (g_bezelboard.type == SINGE_SB_PANEL) {
                        m_video_overlay_width = m_video_overlay_width >> 1;
                        video::set_score_bezel(false);
                    }
@@ -696,13 +711,14 @@ void singe::set_keyboard_mode(int thisVal)
         i_keyboard_mode = thisVal;
 }
 
+void singe::joymouse_enable(bool bEnable) { singe_joymouse = bEnable; }
+
 double singe::get_xratio() { return singe_xratio; }
 double singe::get_yratio() { return singe_yratio; }
 double singe::get_fvalue() { return singe_fvalue; }
 
 uint8_t singe::get_overlaysize() { return m_overlay_size; }
 void singe::set_overlaysize(uint8_t thisVal) { m_overlay_size = thisVal; }
-
 
 void singe::bezel_clear(bool bEnable) { g_bezelboard.clear = bEnable; }
 void singe::bezel_type(uint8_t thisVal) { g_bezelboard.type = thisVal; }
@@ -768,6 +784,12 @@ void singe::set_gamepad_rumble(uint8_t s, uint8_t l, uint8_t id)
 }
 
 int singe::get_keyboard_mode() { return i_keyboard_mode; }
+
+void singe::block_quit(bool bEnable)
+{
+    i_keyboard_escape = bEnable ? SDLK_END : SDLK_ESCAPE;
+    i_keyboard_quit   = bEnable ? SWITCH_CONSOLE : SWITCH_QUIT;
+}
 
 double singe::get_singe_version()
 {
@@ -894,7 +916,8 @@ void singe::process_keyup(SDL_Keycode key, int keydefs[][2])
             toggle_game_pause();
             input_disable(SWITCH_PAUSE, NOMOUSE);
 
-        } else if (key == keydefs[SWITCH_QUIT][0] || key == keydefs[SWITCH_QUIT][1]) {
+        } else if (key == keydefs[i_keyboard_quit][0] ||
+                       key == keydefs[i_keyboard_quit][1]) {
 
             if (m_running) set_quitflag();
 
@@ -916,8 +939,10 @@ void singe::process_keyup(SDL_Keycode key, int keydefs[][2])
 
     } else { // Using full keyboard access....
 
-        // Hardwire ESCAPE key to quit
-        if (key == SDLK_ESCAPE && m_running) set_quitflag();
+        // Hardwire ESCAPE (or END) key to quit
+        if (key == i_keyboard_escape) {
+            if (m_running) set_quitflag();
+        }
         // letter keys
         else if (key >= SDLK_a && key <= SDLK_z)
             input_disable(key, NOMOUSE);

@@ -82,7 +82,7 @@ void printusage()
 {
   const std::string version = hypseus_VERSION;
   const std::string usage = R"USAGE(
-  Hypseus Singe (c) 2021-2025 DirtBagXon )USAGE" + version + R"USAGE(
+  Hypseus Singe (c) 2021-2026 DirtBagXon )USAGE" + version + R"USAGE(
 
   Usage: hypseus <game> vldp -framefile <framefile.txt> ...
 
@@ -90,35 +90,33 @@ void printusage()
 
       - <game> consists of a supported Daphne ROM or 'singe'
 
-      - Singe requires the '-script <game.singe>' argument
-        <game.singe> defines the startup Singe LUA file.
+      - Singe requires an argument defining the LUA location.
 
-        Zipped LUA ROM files are supported in Singe via:
+        Zipped LUA ROM files are recommended via:
 
         -zlua <game.zip>
 
-      - Other common arguments are:
+        -script <game.singe> defines legacy unpacked LUA.
+        <game.singe> should identify the startup LUA file.
+
+      - Other common arguments:
 
         -bezel <game.png>
-        -fastboot
         -fullscreen
         -gamepad
         -linear_scale
 
       - Common Singe arguments:
 
-        -script <game.singe>  : (One argument is required)
-        -zlua <game.zip>
-
-        -usealt <game>
         -blend_sprites
         -manymouse
+        -usealt <game>
 
   See documentation for a full list of available arguments:
 
   Visit: https://github.com/DirtBagXon/hypseus-singe
 
-  Use -v to display build information.
+  Use -version to display build information.
 
 )USAGE";
 

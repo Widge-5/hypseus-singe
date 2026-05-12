@@ -25,6 +25,9 @@
 
 #define MAX_MICE 32
 #define AXIS_COUNT 6
+#define MAX_AXIS 32767
+#define MIN_AXIS -32768
 #define MAX_GAMECONTROLLER 4
+#define MAX_CONTROLLERCONFIG 2
 
 #endif

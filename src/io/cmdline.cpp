@@ -121,7 +121,7 @@ bool parse_homedir()
         else if (strcasecmp(s, "-homedir") == 0) {
             get_next_word(s, sizeof(s));
             if (s[0] == 0) {
-                printerror("Homedir switch used but no homedir specified!");
+                printerror("homedir switch used but no homedir specified!");
                 result = false;
                 break;
             } else {
@@ -186,12 +186,41 @@ bool parse_romdir() {
         else if (strcasecmp(s, "-romdir") == 0) {
             get_next_word(s, sizeof(s));
             if (s[0] == 0) {
-                printerror("Romdir switch used but no romdir specified!");
+                printerror("romdir switch used but no romdir specified!");
                 result = false;
                 break;
             } else {
                 g_homedir.set_romdir(s);
                 snprintf(e, sizeof(e), "Setting alternate rom dir: %s", s);
+                printline(e);
+                break;
+            }
+        }
+    }
+
+    g_arg_index = 1;
+    return result;
+}
+
+bool parse_ramdir() {
+    bool result = true;
+    char s[81] = {0};
+    char e[128];
+
+    for (;;) {
+        get_next_word(s, sizeof(s));
+        if (s[0] == 0) {
+            break;
+        }
+        else if (strcasecmp(s, "-ramdir") == 0) {
+            get_next_word(s, sizeof(s));
+            if (s[0] == 0) {
+                printerror("ramdir switch used but no ramdir specified!");
+                result = false;
+                break;
+            } else {
+                g_homedir.set_ramdir(s);
+                snprintf(e, sizeof(e), "Setting alternate ram dir: %s", s);
                 printline(e);
                 break;
             }
@@ -281,6 +310,8 @@ bool parse_game_type()
     // Added by Buzz
     else if (strcasecmp(s, "cliffalt2") == 0) {
         g_game = new cliffalt2();
+    } else if (strcasecmp(s, "cliff_ox") == 0) {
+        g_game = new cliff_ox();
     } else if (strcasecmp(s, "cobra") == 0) {
         g_game = new cobra();
     } else if (strcasecmp(s, "cobraab") == 0) {
@@ -443,7 +474,11 @@ bool parse_game_type()
         g_game->set_version(3);
     } else if (strcasecmp(s, "uvt") == 0) {
         g_game = new uvt();
-    } else if (strcasecmp(s, "-v") == 0) {
+    } else if (strcasecmp(s, "-apiversion") == 0) {
+        std::fwrite(hypseus_VERSION, 1, sizeof(hypseus_VERSION) - 1, stdout);
+        std::fflush(stdout);
+        exit(0);
+    } else if (strcasecmp(s, "-version") == 0) {
 #if defined(WIN32) || defined(__APPLE__)
         const char* l = "Hypseus Singe: ";
         const char* l1 = get_hypseus_version();
@@ -531,6 +566,7 @@ bool parse_ldp_type()
 bool parse_cmd_line(int argc, char **argv)
 {
     bool result = true;
+    bool filter = false;
     char s[400] = {0}; // in case they pass in a huge folder as part of the framefile
     int i = 0;
 
@@ -542,7 +578,7 @@ bool parse_cmd_line(int argc, char **argv)
     g_arg_index = 1; // skip name of executable from command line
 
     // if game and ldp types are correct
-    if (parse_subsystems() && parse_romdir() && parse_homedir() &&
+    if (parse_subsystems() && parse_romdir() && parse_ramdir() && parse_homedir() &&
             parse_game_type() && parse_ldp_type()) {
         // while we have stuff left in the command line to parse
         for (;;) {
@@ -568,13 +604,23 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
             }
 
+            // if they are defining an alternate 'ram' directory.
+            else if (strcasecmp(s, "-ramdir") == 0) {
+                // Ignore this one, already handled
+                get_next_word(s, sizeof(s));
+            }
+
             // If they are defining an alternate 'data' directory, where all
             // other files aside from the executable live.
             // Primary used for linux to separate binary file (eg. hypseus.bin)
             // and other datafiles .
             else if (strcasecmp(s, "-datadir") == 0) {
                 get_next_word(s, sizeof(s));
-                change_dir(s);
+
+                if (s[0] == 0) {
+                    printerror("datadir switch used but no datadir specified!");
+                    result = false;
+                } else change_dir(s);
             }
 
             // if user wants laserdisc player to blank video while searching
@@ -609,9 +655,8 @@ bool parse_cmd_line(int argc, char **argv)
                 }
             }
             // Ignore some deprecated arguments (Rather than error)
-            else if (strcasecmp(s, "-noserversend") == 0 ||
-                         strcasecmp(s, "-nolinear_scale") == 0 ||
-                             strcasecmp(s, "-fullscale") == 0) {
+            else if ( strcasecmp(s, "-nolinear_scale") == 0 ||
+                         strcasecmp(s, "-fullscale") == 0) {
 
                  char e[460];
                  snprintf(e, sizeof(e), "NOTE : Ignoring deprecated argument: %s", s);
@@ -775,6 +820,16 @@ bool parse_cmd_line(int argc, char **argv)
                     result = false;
                 }
             }
+            else if (strcasecmp(s, "-trigger-threshold") == 0) {
+                get_next_word(s, sizeof(s));
+                double f = numstr::ToDouble(s);
+                if (f >= 90 && f <= 99.9) {
+                    set_trigger_threshold(f);
+                } else {
+                    printerror("Valid threshold values: 90 - 99.9 [Default: 99.5]");
+                    result = false;
+                }
+            }
             else if (strcasecmp(s, "-haptic") == 0) {
                 bool disabled = false;
                 get_next_word(s, sizeof(s));
@@ -799,9 +854,11 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-openhat") == 0) {
                 set_open_hat(true);
             }
-            // if want data sent to the server
-            else if (strcasecmp(s, "-serversend") == 0) {
-                net_server_send();
+            // if want data sent to API server
+            else if (strcasecmp(s, "-noserversend") == 0) {
+                net_server_send(false);
+	    } else if (strcasecmp(s, "-serversend") == 0) {
+                net_server_send(true);
             } else if (strcasecmp(s, "-nosound") == 0) {
                 sound::set_enabled_status(false);
                 printline("Disabling sound...");
@@ -974,7 +1031,7 @@ bool parse_cmd_line(int argc, char **argv)
                         video::set_sb_window_position((xn ? -xVal+1 : xVal-1),
                                                       (yn ? -yVal+1 : yVal-1));
                 } else {
-                    printerror("Positions requires x and y values");
+                    printerror("Positions require x and y values");
                     result = false;
                 }
             }
@@ -1080,16 +1137,29 @@ bool parse_cmd_line(int argc, char **argv)
                     result = false;
                 }
             }
-            // SDL regression: FOURCC isn't supported by renderer back-ends for target access
-            // This avoids a CPU intensive conversion on SBC's
-            else if (strcasecmp(s, "-texturestream") == 0) {
-                video::set_textureaccess(SDL_TEXTUREACCESS_STREAMING);
-                printline("Forcing TEXTUREACCESS_STREAMING");
+            else if (strcasecmp(s, "-luma") == 0) {
+                get_next_word(s, sizeof(s));
+                i = atoi(s);
+
+                if (i >= 0 && i <= 8) {
+                    video::set_luma(true, (uint8_t)i);
+                } else {
+                    printerror("Valid luma values: [0-8]");
+                    result = false;
+                }
             }
-            // Default (or override)
+            // Note this is now (Default)
+            // This avoids the CPU intensive conversion on SBC's
+            else if (strcasecmp(s, "-texturestream") == 0) {
+                if (video::get_textureaccess() == SDL_TEXTUREACCESS_TARGET)
+                    printline("Reassigning TEXTUREACCESS_STREAMING");
+                video::set_textureaccess(SDL_TEXTUREACCESS_STREAMING);
+            }
+            // Some Edge cases may benefit. Note below.
+            // SDL regression: FOURCC isn't supported by renderer back-ends in ACCESS_TARGET
             else if (strcasecmp(s, "-texturetarget") == 0) {
                 if (video::get_textureaccess() == SDL_TEXTUREACCESS_STREAMING)
-                    printline("Reassigning to TEXTUREACCESS_TARGET");
+                    printline("Forcing TEXTUREACCESS_TARGET");
                 video::set_textureaccess(SDL_TEXTUREACCESS_TARGET);
             }
             else if (strcasecmp(s, "-opengl") == 0) {
@@ -1126,7 +1196,7 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
                 if (i > 1 && i < 11) {
-                    video::set_shunt(i);
+                    video::set_shunt((uint8_t)i);
                 } else {
                     printerror("Shunt values: 2-10");
                     result = false;
@@ -1136,7 +1206,7 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
                 if (i >= 1 && i <= 255) {
-                    video::set_alpha(i);
+                    video::set_alpha((uint8_t)i);
                 } else {
                     printerror("Scanline alpha values: 1-255");
                     result = false;
@@ -1149,6 +1219,12 @@ bool parse_cmd_line(int argc, char **argv)
                 if (i > 0 && i < 255)
                     video::set_display_screen(i);
             }
+            else if (strcasecmp(s, "-logos") == 0) {
+                video::set_logo(true);
+            }
+            else if (strcasecmp(s, "-teardown_window") == 0) {
+                video::set_teardown();
+            }
             // run hypseus in fullscreen mode
             else if (strcasecmp(s, "-fullscreen") == 0) {
                 video::set_fullscreen(true);
@@ -1158,6 +1234,12 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-fullscreen_window") == 0) {
                 video::set_fakefullscreen(true);
                 video::set_fullscreen(false);
+            }
+            // If SDL mouse - send raw coordinates
+            else if (strcasecmp(s, "-rawmouse") == 0) {
+                if (g_game->get_manymouse())
+                    printline("Rawmouse only affects SDL mouse");
+                set_mouse_raw(true);
             }
             // Capture mouse within SDL window and enable manymouse
             else if (strcasecmp(s, "-grabmouse") == 0) {
@@ -1171,6 +1253,12 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-nomanymouse") == 0) {
                 // Ignore this one, already handled
             }
+#ifdef LINUX
+            // Manymouse only returns mice with absolute positioning [Linux evdev]
+            else if (strcasecmp(s, "-absolutes-only") == 0) {
+                filter = true;
+            }
+#endif
             // Enable SDL_HINT_RENDER_SCALE_QUALITY(linear)
             else if (strcasecmp(s, "-linear_scale") == 0) {
                 video::set_scale_linear(true);
@@ -1226,11 +1314,15 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 bool path = true;
 
-                if (!safe_dir(s, 0xff)) {
+                if (s[0] == 0) {
+                    printerror("bezeldir switch used but no bezeldir specified!");
+                    path = false;
+                } else if (!safe_dir(s, 0xff)) {
                     printerror("Invalid charaters in bezelpath");
-                    path = result = false;
+                    path = false;
                 }
 
+                result = path;
                 if (path) video::set_bezel_path(s);
             }
             // by DBX - This switches logical axis calculations
@@ -1372,7 +1464,7 @@ bool parse_cmd_line(int argc, char **argv)
             else if (strcasecmp(s, "-stoponquit") == 0) {
                 g_ldp->set_stop_on_quit(true);
             }
-            // Use old style overlays (lair, ace, lair2 & tq)
+            // Use old style overlays (lair, ace, tq)
             else if (strcasecmp(s, "-original_overlay") == 0) {
                 g_game->m_old_overlay = true;
                 video::set_sboverlay_white(true);
@@ -1382,19 +1474,18 @@ bool parse_cmd_line(int argc, char **argv)
                 get_next_word(s, sizeof(s));
                 i = atoi(s);
 
-                // make sure that if we read 0 as the argument, that it is
-                // really zero.. :)
-                if (((i == 0) && (s[0] == '0')) || (i != 0)) {
+                if ((i == 1) || (i == 2)) {
                     video::set_sboverlay_characterset(i);
 
                     lair *game_lair_or_sa = dynamic_cast<lair *>(g_game);
                     thayers *game_thayers = dynamic_cast<thayers *>(g_game);
 
-                    // print a warning instead of an error to make hypseus more
-                    // friendly to non-hypseusloader frontends
+                    // This has been hanging around for more than a decade
+                    // Let's finally stop it being used as a blanket and
+                    // frankly confusing argument
                     if (NULL == game_lair_or_sa && NULL == game_thayers) {
-                        printline("WARNING: -useoverlaysb is not supported for "
-                                  "this game and will be ignored");
+                        printerror("-useoverlaysb is not supported in this game");
+                        result = false;
                     } else {
                         if (game_lair_or_sa)
                             game_lair_or_sa->init_overlay_scoreboard();
@@ -1403,9 +1494,7 @@ bool parse_cmd_line(int argc, char **argv)
                             game_thayers->init_overlay_scoreboard();
                     }
                 } else {
-                    char e[460];
-                    snprintf(e, sizeof(e), "-useoverlaysb requires an argument such as 0 or 1, found: %s", s);
-                    printerror(e);
+                    printerror("-useoverlaysb requires an argument of 1 or 2");
                     result = false;
                 }
             }
@@ -1460,6 +1549,10 @@ bool parse_cmd_line(int argc, char **argv)
         result = false;
     }
 
+    if (filter)
+        if (g_game->get_manymouse())
+            absolute_only();
+
     return (result);
 }
 
@@ -1470,14 +1563,14 @@ void get_next_word(char *result, int result_size)
 {
     // make sure we still have command line left to parse
     if (g_arg_index < g_argc) {
-        strncpy(result, g_argv[g_arg_index], result_size-1);
-        result[result_size - 1] = 0; // terminate end of string just in case we
-                                     // hit the limit
+        strncpy(result, g_argv[g_arg_index], result_size - 1);
+        result[result_size - 1] = '\0'; // terminate end of string just in case we
+                                        // hit the limit
         g_arg_index++;
     }
 
     // if we have no command line left to parse ...
     else {
-        result[0] = 0; // return a null string
+        result[0] = '\0'; // return a null string
     }
 }

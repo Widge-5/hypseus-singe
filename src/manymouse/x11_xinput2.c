@@ -202,7 +202,6 @@ static int init_mouse(MouseStruct *mouse, const XIDeviceInfo *devinfo)
 {
     XIAnyClassInfo **classes = devinfo->classes;
     int axis = 0;
-    int i = 0;
 
     /*
      * we only look at "slave" devices. "Master" pointers are the logical
@@ -218,7 +217,7 @@ static int init_mouse(MouseStruct *mouse, const XIDeviceInfo *devinfo)
     mouse->device_id = devinfo->deviceid;
     mouse->connected = 1;
 
-    for (i = 0; i < devinfo->num_classes; i++)
+    for (int i = 0; i < devinfo->num_classes; i++)
     {
         if ((classes[i]->type == XIValuatorClass) && (axis < MAX_AXIS))
         {
@@ -267,7 +266,7 @@ static int register_for_events(Display *dpy)
 } /* register_for_events */
 
 
-static int x11_xinput2_init_internal(void)
+static int x11_xinput2_init_internal(unsigned char absOnly)
 {
     const char *ext = "XInputExtension";
     XIDeviceInfo *device_list = NULL;
@@ -280,9 +279,6 @@ static int x11_xinput2_init_internal(void)
     int i = 0;
 
     xinput2_cleanup();  /* just in case... */
-
-    if (getenv("MANYMOUSE_NO_XINPUT2") != NULL)
-        return -1;
 
     if (!find_api_symbols())
         return -1;  /* couldn't find all needed symbols. */
@@ -297,7 +293,7 @@ static int x11_xinput2_init_internal(void)
     pXSetExtensionErrorHandler(Xext_handler);
     Xext_handler = NULL;
 
-    if (!available)
+    if (!available || absOnly)
         return -1;  /* no XInput2 support. */
 
     /*
@@ -321,9 +317,9 @@ static int x11_xinput2_init_internal(void)
 } /* x11_xinput2_init_internal */
 
 
-static int x11_xinput2_init(void)
+static int x11_xinput2_init(const unsigned char filter)
 {
-    int retval = x11_xinput2_init_internal();
+    int retval = x11_xinput2_init_internal(filter);
     if (retval < 0)
         xinput2_cleanup();
     return retval;
@@ -441,13 +437,16 @@ static void pump_events(void)
                                 event.type = MANYMOUSE_EVENT_RELMOTION;
                             else
                                 event.type = MANYMOUSE_EVENT_ABSMOTION;
+
                             event.device = (unsigned int)mouse;
                             event.item = (unsigned int)i;
                             event.value = value;
                             event.minval = mice[mouse].minval[i];
                             event.maxval = mice[mouse].maxval[i];
+
                             if ((!mice[mouse].relative[i]) || (value))
                                 queue_event(&event);
+
                             values++;
                         } /* if */
                     } /* for */

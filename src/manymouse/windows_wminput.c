@@ -45,6 +45,7 @@ static const char *class_name = "ManyMouseRawInputCatcher";
 static const char *win_name = "ManyMouseRawInputMsgWindow";
 static ATOM class_atom = 0;
 static CRITICAL_SECTION mutex;
+static unsigned char absOnly = 0;
 
 typedef struct
 {
@@ -559,13 +560,14 @@ static void init_mouse(const RAWINPUTDEVICELIST *dev)
 } /* init_mouse */
 
 
-static int windows_wminput_init(void)
+static int windows_wminput_init(const unsigned char filter)
 {
     RAWINPUTDEVICELIST *devlist = NULL;
     UINT ct = 0;
     UINT i;
 
     available_mice = 0;
+    absOnly = filter;
 
     if (!find_api_symbols())  /* only supported on WinXP and later. */
         return -1;
@@ -696,7 +698,7 @@ static int windows_wminput_poll(ManyMouseEvent *ev)
 
 static const ManyMouseDriver ManyMouseDriver_interface =
 {
-    "Windows XP and later WM_INPUT interface",
+    "Windows WM_INPUT interface",
     windows_wminput_init,
     windows_wminput_quit,
     windows_wminput_name,

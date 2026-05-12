@@ -1,7 +1,7 @@
 /*
  * singeproxy.cpp
  *
- * Copyright (C) 2006 Scott C. Duensing - 2024 DirtBagXon
+ * Copyright (C) 2006 Scott C. Duensing - 2025 DirtBagXon
  *
  * This file is part of HYPSEUS, a laserdisc arcade game emulator
  *
@@ -56,6 +56,12 @@ typedef struct g_mixerType {
 	bool      load = false;
 } g_mixerT;
 
+typedef struct {
+	unsigned int count;
+	unsigned int duration;
+	bool trip;
+} g_blankT;
+
 typedef struct g_spriteType {
 	double  angle  = 0.0f;
 	double  scaleX = 0.0f;
@@ -65,6 +71,7 @@ typedef struct g_spriteType {
 	bool    gfx    = false;
 	bool    smooth = false;
 	bool    rekey  = false;
+	bool    nokey  = false;
 	SDL_Surface *store;
 	SDL_Surface *frame;
 	SDL_Surface *present;
@@ -81,70 +88,84 @@ typedef struct g_spriteType {
 typedef struct g_positionType {
 	int     mouseX[MAX_MICE] = {0};
 	int     mouseY[MAX_MICE] = {0};
-	Sint16  axisvalue[MAX_GAMECONTROLLER][AXIS_COUNT] = { {0} };
+	Sint16  axisvalue[MAX_GAMECONTROLLER][AXIS_COUNT];
+
+        g_positionType() {
+            for (int i = 0; i < MAX_GAMECONTROLLER; ++i)
+                for (int j = 0; j < AXIS_COUNT; ++j)
+                    axisvalue[i][j] = 0;
+        }
 } g_positionT;
 
 // These are pointers and values needed by the script engine to interact with Hypseus
-lua_State    *g_se_lua_context;
-SDL_Surface  *g_se_surface        = NULL;
-SDL_Renderer *g_se_renderer       = NULL;
-SDL_Texture  *g_se_texture        = NULL;
-int           g_se_overlay_width;
-int           g_se_overlay_height;
-double       *g_se_disc_fps;
-unsigned int *g_se_uDiscFPKS;
+static lua_State    *g_se_lua_context;
+static SDL_Surface  *g_se_surface        = NULL;
+static int           g_se_vldp_width     = 0;
+static int           g_se_vldp_height    = 0;
+static int           g_se_overlay_width  = 0;
+static int           g_se_overlay_height = 0;
+static double       *g_se_disc_fps;
+static unsigned int *g_se_uDiscFPKS;
 
 // used to know whether try to shutdown lua would crash
-bool g_bLuaInitialized = false;
+static bool g_bLuaInitialized = false;
 
-bool g_se_saveme = true;
+static bool g_se_grunt = true;
 
 // Communications from the DLL to and from Hypseus
 struct       singe_out_info  g_SingeOut;
 const struct singe_in_info  *g_pSingeIn = NULL;
 
 // Internal data to keep track of things
-SDL_Color             g_colorForeground     = {255, 255, 255, 0};
-SDL_Color             g_colorBackground     = {0, 0, 0, 0};
-vector<TTF_Font *>    g_fontList;
-vector<g_mixerT>      g_mixerList;
-vector<g_soundT>      g_soundList;
-vector<g_spriteT>     g_sprites;
-int                   g_fontCurrent         = -1;
-int                   g_fontQuality         =  1;
-double                g_sep_overlay_scale_x =  1;
-double                g_sep_overlay_scale_y =  1;
-bool                  g_pause_state         = false; // by RDG2010
-bool                  g_init_mute           = false;
-bool                  g_upgrade_overlay     = false;
-bool                  g_show_crosshair      = true;
-bool                  g_blend_sprite        = false;
-bool                  g_trace               = false;
-bool                  g_rom_zip             = false;
-bool                  g_firstload           = true;
-bool                  g_firstfont           = true;
-bool                  g_firstmix            = true;
-bool                  g_firstsnd            = true;
-bool                  g_pixelready          = false;
-uint32_t              g_format              = 0;
+static SDL_Color             g_colorForeground     = {255, 255, 255, 0};
+static SDL_Color             g_colorBackground     = {0, 0, 0, 0};
+static vector<TTF_Font *>    g_fontList;
+static vector<g_mixerT>      g_mixerList;
+static vector<g_soundT>      g_soundList;
+static vector<g_spriteT>     g_sprites;
+static yuv_buffer            g_se_yuv_buf;
+static int                   g_fontCurrent         = -1;
+static int                   g_fontQuality         =  1;
+static double                g_se_overlay_scale_x  =  1;
+static double                g_se_overlay_scale_y  =  1;
+static double                g_se_yuv_scale_x      =  1;
+static double                g_se_yuv_scale_y      =  1;
+static bool                  g_pause_state         = false; // by RDG2010
+static bool                  g_show_crosshair      = true;
+static bool                  g_blend_sprite        = false;
+static bool                  g_trace               = false;
+static bool                  g_rom_zip             = false;
+static bool                  g_firstload           = true;
+static bool                  g_firstfont           = true;
+static bool                  g_firstmix            = true;
+static bool                  g_firstsnd            = true;
+static bool                  g_pixelready          = false;
+static bool                  g_colorkey            = true;
+static bool                  g_zlua_arg            = false;
+static uint8_t               g_upgrade_overlay     = 0;
 
-bool                  g_keyboard_state[SDL_NUM_SCANCODES] = {false};
-int                   g_keyboard_down       = SDL_SCANCODE_UNKNOWN;
-int                   g_keyboard_up         = SDL_SCANCODE_UNKNOWN;
+static bool                  g_keyboard_state[SDL_NUM_SCANCODES] = {false};
+static int                   g_keyboard_down       = SDL_SCANCODE_UNKNOWN;
+static int                   g_keyboard_up         = SDL_SCANCODE_UNKNOWN;
 
-g_positionT           g_tract;
-std::string           g_scriptpath;
-std::string           g_altgame;
-const std::string     ramfiles[]            = {".cfg", ".ram"};
-const char*           g_zipFile             = NULL;
-SDL_AudioSpec*        g_sound_load          = NULL;
-vector<ZipEntry>      g_zipList;
-vector<ZipEntry>::iterator iter;
+static g_positionT           g_tract;
+static std::string           g_scriptpath;
+static std::string           g_altgame;
+static g_blankT              l_blank               = {0, 0, false};
+static const std::string     m_ramfiles[]          = {".cfg", ".ram"};
+const char*                  g_zipFile             = NULL;
+static SDL_AudioSpec*        g_sound_load          = NULL;
 
-const vector<Mix_MusicType> supportedMusic = { MUS_MP3, MUS_MID };
-const vector<std::pair<int, std::string>> mixerFlags = {
-    { MIX_INIT_MP3, "MP3" },
-    { MIX_INIT_MID, "MIDI" }
+ZipArchive*                  g_zf                  = nullptr;
+bool*                        g_zlfs                = nullptr;
+static vector<ZipEntry>      g_zipList;
+static vector<ZipEntry>::iterator m_iter;
+
+static const SDL_Color g_colorTransparent = {0, 0, 0, 0};
+static const vector<Mix_MusicType> m_supportedMusic = { MUS_MP3, MUS_MID };
+static const vector<std::pair<int, std::string>> m_mixerFlags = {
+    { MIX_INIT_MP3,  "MP3" },
+    { MIX_INIT_MID,  "MIDI" }
 };
 
 int (*g_original_prepare_frame)(uint8_t *Yplane, uint8_t *Uplane, uint8_t *Vplane,
@@ -173,9 +194,11 @@ SINGE_EXPORT const struct singe_out_info *singeproxy_init(const struct singe_in_
     g_SingeOut.sep_startup             = sep_startup;
     g_SingeOut.sep_datapaths           = sep_datapaths;
     g_SingeOut.sep_altgame             = sep_altgame;
-    g_SingeOut.sep_mute_vldp_init      = sep_mute_vldp_init;
+    g_SingeOut.sep_minseek             = sep_minseek;
     g_SingeOut.sep_no_crosshair        = sep_no_crosshair;
+    g_SingeOut.sep_rom_compressed      = sep_rom_compressed;
     g_SingeOut.sep_upgrade_overlay     = sep_upgrade_overlay;
+    g_SingeOut.sep_fullalpha_overlay   = sep_fullalpha_overlay;
     g_SingeOut.sep_keyboard_set_state  = sep_keyboard_set_state;
     g_SingeOut.sep_controller_set_axis = sep_controller_set_axis;
     g_SingeOut.sep_enable_trace        = sep_enable_trace;
@@ -188,9 +211,9 @@ SINGE_EXPORT const struct singe_out_info *singeproxy_init(const struct singe_in_
 
 ////////////////////////////////////////////////////////////////////////////////
 
-SDL_GameController* get_gamepad_id(int i);
+bool net_send_enabled();
 
-unsigned char sep_byte_clip(int value)
+static unsigned char sep_byte_clip(int value)
 {
     int result;
 	
@@ -201,9 +224,20 @@ unsigned char sep_byte_clip(int value)
     return (unsigned char)result;
 }
 
-void sep_set_retropath()
+static void sep_do_blank()
 {
-    lua_set_retropath(true);
+    palette::set_yuv_transparency(l_blank.count == 0);
+
+    if (l_blank.count > 0) l_blank.count--;
+    else {
+        l_blank.count = l_blank.duration;
+        l_blank.trip = false;
+    }
+}
+
+void sep_set_espath()
+{
+    lua_set_espath(true);
 }
 
 void sep_datapaths(const char *data)
@@ -211,14 +245,15 @@ void sep_datapaths(const char *data)
    if (data[0] != '\0') lua_set_abpath(data);
 }
 
-SDL_GameControllerButton get_button(int value)
+static SDL_GameControllerButton get_button(int value)
 {
     if (value >= 0 && value < static_cast<int>(SDL_CONTROLLER_BUTTON_MAX))
         return static_cast<SDL_GameControllerButton>(value);
-    else return SDL_CONTROLLER_BUTTON_INVALID;
+
+    return SDL_CONTROLLER_BUTTON_INVALID;
 }
 
-std::string sep_fmt(const std::string fmt_str, ...)
+static std::string sep_fmt(const std::string fmt_str, ...)
 {
     va_list ap, ap_copy;
     const std::string prefix = "SINGE: ";
@@ -238,7 +273,7 @@ std::string sep_fmt(const std::string fmt_str, ...)
     return formatted;
 }
 
-bool audio_format()
+static bool audio_format()
 {
     if ((SDL_BYTEORDER == SDL_LIL_ENDIAN && g_sound_load->format == AUDIO_S16SYS)
     || (SDL_BYTEORDER == SDL_BIG_ENDIAN && g_sound_load->format == AUDIO_S16LSB))
@@ -248,7 +283,7 @@ bool audio_format()
     return false;
 }
 
-void sep_trace(lua_State *L)
+static void sep_trace(lua_State *L)
 {
     if (g_trace) {
         if (g_rom_zip) {
@@ -271,57 +306,57 @@ void sep_trace(lua_State *L)
     }
 }
 
-void sep_set_rampath()
+static void sep_set_rampath()
 {
     lua_set_zipath(true);
-    char rampath[RETRO_MAXPATH] = {0};
-    void* found = NULL;
-    int size = 0;
-    homedir home;
+    char rampath[REWRITE_MAXPATH] = {0};
 
-    ZipArchive zf(g_zipFile);
-    zf.open(ZipArchive::ReadOnly);
-
-    if (zf.isOpen()) {
-        g_zipList = zf.getEntries();
-        for (iter = g_zipList.begin(); iter != g_zipList.end(); ++iter) {
-             ZipEntry g_zipList = *iter;
-             std::string name = g_zipList.getName();
+    if (g_zf->isOpen()) {
+        g_zipList = g_zf->getEntries();
+        for (m_iter = g_zipList.begin(); m_iter != g_zipList.end(); ++m_iter) {
+             ZipEntry entry = *m_iter;
+             std::string name = entry.getName();
 
              std::string search = name;
              if (search.length() >= 3)
                  std::transform(search.end() - 3, search.end(),
                            search.end() - 3, ::tolower);
 
-             for (const auto& ext : ramfiles) {
+             for (const auto& ext : m_ramfiles) {
                  if (search.find(ext) != std::string::npos) {
-                     found = g_zipList.readAsBinary();
-                     size = g_zipList.getSize();
 
-                     int l = strlen(name.c_str());
-                     lua_rampath(name.c_str(), rampath, l);
+                     void* found = entry.readAsBinary();
+                     int size = entry.getSize();
+
+                     if (!found) continue;
+
+                     lua_rampath(name.c_str(), rampath, REWRITE_MAXPATH);
 
                      if (!mpo_file_exists(rampath)) {
 
-                         home.create_dirs(rampath);
-                         fstream fs(rampath,ios::out|ios::binary);
+                         g_homedir.create_dirs(rampath);
+                         fstream fs(rampath, std::ios::out | std::ios::binary);
 
                          if (fs.is_open()) {
 
-                             fs.write((const char*)found, size);
+                             fs.write(reinterpret_cast<const char*>(found), size);
                              fs.close();
+
                              LOGW << sep_fmt("Copying ramfile: %s from zip", rampath);
 
                          } else {
+
                              LOGE << sep_fmt("Error copying zip ramfile: %s", rampath);
                              g_pSingeIn->set_quitflag();
                          }
                      }
+
+                     delete[] reinterpret_cast<char*>(found);
+                     break;
                  }
              }
         }
         g_zipList.clear();
-        zf.close();
     }
 }
 
@@ -343,6 +378,34 @@ void sep_controller_set_axis(Uint8 axis, Sint16 value, Uint8 id)
     g_tract.axisvalue[id][axis] = value;
 }
 
+static void sep_die(const char *fmt, ...)
+{
+    char message[2048];
+    char temp[2048];
+
+    strcpy(message, "SINGE: ");
+
+    va_list argp;
+    va_start(argp, fmt);
+    vsnprintf(temp, sizeof(temp), fmt, argp);
+    va_end(argp);
+
+    strcat(message, temp);
+
+    if (g_se_grunt) {
+        sound::play_saveme();
+        SDL_Delay(1000);
+        g_se_grunt = false;
+        g_pSingeIn->set_singe_errors(SINGE_ERROR_RUNTIME);
+    }
+
+    // tell hypseus what our last error was ...
+    g_pSingeIn->set_last_error(message);
+
+    // force (clean) shutdown
+    g_pSingeIn->set_quitflag();
+}
+
 void sep_call_lua(const char *func, const char *sig, ...)
 {
     va_list vl;
@@ -350,7 +413,7 @@ void sep_call_lua(const char *func, const char *sig, ...)
     int popCount;
     const int top = lua_gettop(g_se_lua_context);
     static uint8_t err = 0;
-	
+
     va_start(vl, sig);
 	
     /* get function */
@@ -430,44 +493,16 @@ void sep_call_lua(const char *func, const char *sig, ...)
         lua_pop(g_se_lua_context, popCount);
 }
 
-void sep_capture_vldp()
+static void sep_capture_vldp()
 {
     // Intercept VLDP callback
     g_original_prepare_frame = g_pSingeIn->g_local_info->prepare_frame;
     g_pSingeIn->g_local_info->prepare_frame = sep_prepare_frame_callback;
 }
 
-void sep_die(const char *fmt, ...)
+static bool sep_valid_music(Mix_MusicType type)
 {
-    char message[2048];
-    char temp[2048];
-	
-    strcpy(message, "SINGE: ");
-
-    va_list argp;
-    va_start(argp, fmt);
-    vsnprintf(temp, sizeof(temp), fmt, argp);
-    va_end(argp);
-
-    strcat(message, temp);
-
-    if (g_se_saveme) {
-        sound::play_saveme();
-        SDL_Delay(1000);
-        g_se_saveme = false;
-        g_pSingeIn->set_singe_errors(SINGE_ERROR_RUNTIME);
-    }
-
-    // tell hypseus what our last error was ...
-    g_pSingeIn->set_last_error(message);
-
-    // force (clean) shutdown
-    g_pSingeIn->set_quitflag();
-}
-
-bool sep_valid_music(Mix_MusicType type)
-{
-    for (const auto& music : supportedMusic) {
+    for (const auto& music : m_supportedMusic) {
         if (type == music) {
             return true;
         }
@@ -475,19 +510,19 @@ bool sep_valid_music(Mix_MusicType type)
     return false;
 }
 
-bool sep_init_mixer()
+static bool sep_init_mixer()
 {
     SDL_setenv("SDL_FORCE_SOUNDFONTS", "1", 1);
     SDL_setenv("SDL_SOUNDFONTS", "midi/soundfont.sf2", 1);
 
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        sep_die("SDL Mixer library is not available.");
+        sep_die("SDL Mixer failed to open audio devices.");
         return false;
     }
 
     int flags = 0;
 
-    for (const auto& flag : mixerFlags) {
+    for (const auto& flag : m_mixerFlags) {
         flags |= flag.first;
     }
 
@@ -495,7 +530,7 @@ bool sep_init_mixer()
 
     if ((setup & flags) != flags) {
 
-        for (const auto& type : mixerFlags) {
+        for (const auto& type : m_mixerFlags) {
             if (!(setup & type.first)) {
                 sep_die("SDL_Mixer %s support is not available.", type.second.c_str());
             }
@@ -505,14 +540,6 @@ bool sep_init_mixer()
 
     Mix_VolumeMusic(10);
     return true;
-}
-
-void sep_do_blit(SDL_Surface *srfDest)
-{
-    if (g_upgrade_overlay)
-         sep_format_srf32(g_se_surface, srfDest);
-    else
-         sep_srf32_to_srf8(g_se_surface, srfDest);
 }
 
 void sep_do_mouse_move(Uint16 x, Uint16 y, Sint16 xrel, Sint16 yrel, Sint8 mouseID)
@@ -531,10 +558,10 @@ void sep_do_mouse_move(Uint16 x, Uint16 y, Sint16 xrel, Sint16 yrel, Sint8 mouse
         return;
     }
 	
-    x1 *= g_sep_overlay_scale_x;
-    y1 *= g_sep_overlay_scale_y;
-    xr *= g_sep_overlay_scale_x;
-    yr *= g_sep_overlay_scale_y;
+    x1 *= g_se_overlay_scale_x;
+    y1 *= g_se_overlay_scale_y;
+    xr *= g_se_overlay_scale_x;
+    yr *= g_se_overlay_scale_y;
 
     if (mID < 0) rID += 1; // SDL_MOUSE
     g_tract.mouseX[rID] = x1;
@@ -578,11 +605,18 @@ int sep_lua_error(lua_State *L)
 int sep_prepare_frame_callback(uint8_t *Yplane, uint8_t *Uplane, uint8_t *Vplane,
                            int Ypitch, int Upitch, int Vpitch)
 {
-    int result = VLDP_FALSE;
+    if (l_blank.trip) sep_do_blank();
 
-    result = (video::vid_update_yuv_overlay(Yplane, Uplane, Vplane, Ypitch, Upitch, Vpitch) == 0)
-		? VLDP_TRUE
-		: VLDP_FALSE;
+    int result = (video::vid_update_yuv_overlay(Yplane, Uplane, Vplane, Ypitch, Upitch, Vpitch) == 0)
+               ? VLDP_TRUE
+               : VLDP_FALSE;
+
+    if (g_pixelready)
+    {
+        memcpy(g_se_yuv_buf.Y.get(), Yplane, g_se_vldp_width * g_se_vldp_height);
+        memcpy(g_se_yuv_buf.U.get(), Uplane, g_se_yuv_buf.UVw * g_se_yuv_buf.UVh);
+        memcpy(g_se_yuv_buf.V.get(), Vplane, g_se_yuv_buf.UVw * g_se_yuv_buf.UVh);
+    }
 
     return result;
 }
@@ -620,25 +654,79 @@ void sep_set_surface(int width, int height)
 {
     bool createSurface = false;
 
-    g_se_overlay_height = height;
     g_se_overlay_width = width;
+    g_se_overlay_height = height;
+
+    g_se_vldp_width = g_pSingeIn->g_vldp_info->w;
+    g_se_vldp_height = g_pSingeIn->g_vldp_info->h;
 	
-    if (g_se_surface == NULL) {
+    if (g_se_surface == NULL)
+    {
         createSurface = true;
-    } else {
+    }
+    else
+    {
         if ((g_se_surface->w != g_se_overlay_width) || (g_se_surface->h != g_se_overlay_height))
         {
             SDL_FreeSurface(g_se_surface);
             createSurface = true;
         }
     }
-	
-    if (createSurface) {
-        g_se_surface = SDL_CreateRGBSurface(0, g_se_overlay_width, g_se_overlay_height,
-                                                   32, 0xFF, 0xFF00, 0xFF0000, 0xFF000000);
-        g_sep_overlay_scale_x = (double)g_se_overlay_width / (double)g_pSingeIn->get_video_width();
-        g_sep_overlay_scale_y = (double)g_se_overlay_height / (double)g_pSingeIn->get_video_height();
+
+    if (createSurface)
+    {
+        g_se_surface = SDL_CreateRGBSurface(0, g_se_overlay_width,
+                           g_se_overlay_height, 32, 0xFF, 0xFF00,
+			       0xFF0000, 0xFF000000);
+
+        if (!g_se_surface)
+            sep_die("sep_set_surface creation failed: %s\n", SDL_GetError());
+
+        g_se_overlay_scale_x = (double)g_se_overlay_width  / (double)g_pSingeIn->get_video_width();
+        g_se_overlay_scale_y = (double)g_se_overlay_height / (double)g_pSingeIn->get_video_height();
     }
+
+    if (g_se_yuv_buf.width != g_se_vldp_width || g_se_yuv_buf.height != g_se_vldp_height)
+    {
+        size_t Ys  = static_cast<size_t>(g_se_vldp_width) *
+                     static_cast<size_t>(g_se_vldp_height);
+        size_t UVw = static_cast<size_t>(g_se_vldp_width)  >> 1;
+        size_t UVh = static_cast<size_t>(g_se_vldp_height) >> 1;
+        size_t UVs = UVw * UVh;
+
+        try
+        {
+            unique_ptr<uint8_t[]> newY(new uint8_t[Ys]);
+            unique_ptr<uint8_t[]> newU(new uint8_t[UVs]);
+            unique_ptr<uint8_t[]> newV(new uint8_t[UVs]);
+
+            memset(newY.get(), 0x00, Ys);
+            memset(newU.get(), 0x80, UVs);
+            memset(newV.get(), 0x80, UVs);
+
+            g_se_yuv_buf.Y = std::move(newY);
+            g_se_yuv_buf.U = std::move(newU);
+            g_se_yuv_buf.V = std::move(newV);
+        }
+        catch (const std::bad_alloc&)
+        {
+            LOGE << "YUV buffer allocation failed";
+            sep_die("YUV Buffer could not Initialize");
+        }
+
+        g_se_yuv_buf.width  = g_se_vldp_width;
+        g_se_yuv_buf.height = g_se_vldp_height;
+
+        g_se_yuv_buf.Ypitch = g_se_vldp_width;
+        g_se_yuv_buf.Upitch = static_cast<int>(UVw);
+        g_se_yuv_buf.Vpitch = static_cast<int>(UVw);
+
+        g_se_yuv_buf.UVw = static_cast<int>(UVw);
+        g_se_yuv_buf.UVh = static_cast<int>(UVh);
+    }
+
+    g_se_yuv_scale_x = (double)g_se_vldp_width  / (double)g_se_overlay_width;
+    g_se_yuv_scale_y = (double)g_se_vldp_height / (double)g_se_overlay_height;
 }
 
 SDL_Surface *sep_copy_surface(SDL_Surface *src, SDL_Rect *rect)
@@ -660,8 +748,70 @@ SDL_Surface *sep_copy_surface(SDL_Surface *src, SDL_Rect *rect)
 
     if (dst != NULL)
         SDL_BlitSurface(src, rect, dst, NULL);
+    else
+        sep_die("sep_copy_surface failed: %s\n", SDL_GetError());
 
     return dst;
+}
+
+static void sep_unload_fonts(void)
+{
+  if (g_fontList.size() > 0) {
+
+      for (int x = 0; x < (int)g_fontList.size(); x++)
+           TTF_CloseFont(g_fontList[x]);
+
+      g_fontList.clear();
+  }
+}
+
+static void sep_unload_sounds(void)
+{
+  g_pSingeIn->samples_flush_queue();
+
+  if (g_soundList.size() > 0) {
+
+      for (int x = 0; x < (int)g_soundList.size(); x++)
+          if (g_soundList[x].load)
+              SDL_FreeWAV(g_soundList[x].buffer);
+
+      g_soundList.clear();
+  }
+}
+
+static void sep_unload_mixers(void)
+{
+  if (g_mixerList.size() > 0) {
+
+      for (int x = 0; x < (int)g_mixerList.size(); x++)
+          if (g_mixerList[x].load)
+              Mix_FreeMusic(g_mixerList[x].data);
+
+      g_mixerList.clear();
+  }
+}
+
+static void sep_unload_sprites(void)
+{
+  if (g_sprites.size() > 0) {
+
+      for (int x = 0; x < (int)g_sprites.size(); x++)
+      {
+          SDL_FreeSurface(g_sprites[x].present);
+          SDL_FreeSurface(g_sprites[x].store);
+          SDL_FreeSurface(g_sprites[x].frame);
+          g_sprites[x].present = NULL;
+          g_sprites[x].store = NULL;
+          g_sprites[x].frame = NULL;
+#if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
+          if (g_sprites[x].animation)
+              IMG_FreeAnimation(g_sprites[x].animation);
+          g_sprites[x].animation = NULL;
+#endif
+      }
+
+      g_sprites.clear();
+   }
 }
 
 void sep_shutdown(void)
@@ -672,33 +822,49 @@ void sep_shutdown(void)
     sep_unload_fonts();
     sep_unload_sounds();
     sep_unload_sprites();
+
+    if (g_zf)
+    {
+        if (*g_zlfs)
+            sep_print("Unloading Zip LFS.");
+
+        if (g_zf->isOpen())
+            g_zf->close();
+
+        delete g_zf;
+        g_zf = nullptr;
+    }
+
+    delete g_zlfs;
+    g_zlfs = nullptr;
 	
     if (g_bLuaInitialized)
     {
         lua_close(g_se_lua_context);
+        g_se_lua_context = nullptr;
         g_bLuaInitialized = false;
     }
 }
 
-void sep_sprite_reset()
+static void sep_sprite_reset()
 {
     g_sprites.clear();
     g_firstload = false;
 }
 
-void sep_font_reset()
+static void sep_font_reset()
 {
     g_fontList.clear();
     g_firstfont = false;
 }
 
-void sep_sound_reset()
+static void sep_sound_reset()
 {
     g_soundList.clear();
     g_firstsnd = false;
 }
 
-void sep_mixer_reset()
+static void sep_mixer_reset()
 {
     g_mixerList.clear();
     g_firstmix = false;
@@ -727,7 +893,7 @@ inline bool sep_animation_valid(lua_State *L, int sprite, IMG_Animation *animati
 }
 #endif
 
-inline bool sep_sprite_valid(lua_State *L, int sprite, SDL_Surface *surface, const char* func)
+static inline bool sep_sprite_valid(lua_State *L, int sprite, SDL_Surface *surface, const char* func)
 {
     if (!sep_vector_range(g_sprites, sprite) || surface == NULL) {
 
@@ -742,7 +908,7 @@ inline bool sep_sprite_valid(lua_State *L, int sprite, SDL_Surface *surface, con
     return true;
 }
 
-inline bool sep_sound_valid(int sound, const char* func)
+static inline bool sep_sound_valid(int sound, const char* func)
 {
     if (!sep_vector_range(g_soundList, sound) ||
         !g_soundList[sound].load) {
@@ -753,7 +919,7 @@ inline bool sep_sound_valid(int sound, const char* func)
     return true;
 }
 
-inline bool sep_mixer_valid(int mixer, const char* func)
+static inline bool sep_mixer_valid(int mixer, const char* func)
 {
     if (!sep_vector_range(g_mixerList, mixer) ||
         !g_mixerList[mixer].load) {
@@ -764,7 +930,7 @@ inline bool sep_mixer_valid(int mixer, const char* func)
     return true;
 }
 
-inline bool sep_font_valid(lua_State *L, TTF_Font *font, const char* func)
+static inline bool sep_font_valid(lua_State *L, TTF_Font *font, const char* func)
 {
     if (font == NULL) {
 
@@ -779,28 +945,28 @@ inline bool sep_font_valid(lua_State *L, TTF_Font *font, const char* func)
     return true;
 }
 
-void sep_sound_ended(Uint8 *buffer, unsigned int slot)
+static void sep_sound_ended(Uint8 *buffer, unsigned int slot)
 {
     sep_call_lua("onSoundCompleted", "i", slot);
 }
 
-void sep_draw_pixel(int x, int y, SDL_Color *c) {
+static void sep_draw_pixel(int x, int y, SDL_Color *c) {
+
+    if ((x < 0) || (x >= g_se_surface->w) || (y < 0) || (y >= g_se_surface->h)) return;
+
+    SDL_Color f = g_colorkey ? SDL_Color{c->r, c->g, c->b, 0xff} : g_colorTransparent;
 
     int bpp      = g_se_surface->format->BytesPerPixel;
     Uint8 *p     = (Uint8 *)g_se_surface->pixels + y * g_se_surface->pitch + x * bpp;
-    Uint32 pixel = SDL_MapRGBA(g_se_surface->format, c->r, c->g, c->b, 0xff);
-
-    if ((x < 0) || (x >= g_se_surface->w) || (y < 0) || (y >= g_se_surface->h)) return;
+    Uint32 pixel = SDL_MapRGBA(g_se_surface->format, f.r, f.g, f.b, f.a);
 
     switch (bpp) {
        case 1:
                *p = (Uint8)pixel;
                break;
-
        case 2:
                *(Uint16 *)p = (Uint16)pixel;
                break;
-
        case 3:
                if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
                    p[0] = (pixel >> 16) & 0xff;
@@ -812,14 +978,13 @@ void sep_draw_pixel(int x, int y, SDL_Color *c) {
                    p[2] = (pixel >> 16) & 0xff;
                }
                break;
-
        case 4:
                *(Uint32 *)p = pixel;
                break;
     }
 }
 
-void sep_draw_line(int x1, int y1, int x2, int y2, SDL_Color *c) {
+static void sep_draw_line(int x1, int y1, int x2, int y2, SDL_Color *c) {
 
     int x, y, dx, dy, incX, incY, balance;
     x = y = dx = dy = incX = incY = balance = 0;
@@ -959,7 +1124,24 @@ bool sep_srf32_to_srf8(SDL_Surface *src, SDL_Surface *dst)
     return bResult;
 }
 
-bool sep_format_srf32(SDL_Surface *src, SDL_Surface *dst)
+static bool sep_fullalpha_srf32(SDL_Surface *src, SDL_Surface *dst)
+{
+    bool bResult = false;
+
+    if (
+        ((dst->w == src->w) && (dst->h == src->h)) &&
+        (dst->format->BitsPerPixel == 32) &&
+        (src->format->BitsPerPixel == 32)
+    )
+    {
+        SDL_FillRect(dst, NULL, SDL_MapRGBA(dst->format, 0, 0, 0, 0));
+        SDL_BlitSurface(src, NULL, dst, NULL);
+        bResult = true;
+    }
+    return bResult;
+}
+
+static bool sep_format_srf32(SDL_Surface *src, SDL_Surface *dst)
 {
     bool bResult = false;
 
@@ -1016,33 +1198,116 @@ bool sep_format_srf32(SDL_Surface *src, SDL_Surface *dst)
     return bResult;
 }
 
-SDL_RWops* sep_unzip(std::string s)
+static bool sep_format_monochrome(SDL_Surface *src, SDL_Surface *dst)
+{
+    bool bResult = false;
+
+    // convert to monochrome grayscale surface
+
+    if (
+        ((dst->w == src->w) && (dst->h == src->h)) &&
+        (dst->format->BitsPerPixel == 32) &&
+        (src->format->BitsPerPixel == 32)
+    )
+    {
+        SDL_LockSurface(dst);
+        SDL_LockSurface(src);
+
+        Uint32 *p32Src = (Uint32 *)src->pixels;
+        Uint32 *p32Dst = (Uint32 *)dst->pixels;
+        int totalPixels = (src->pitch / 4) * src->h;
+
+        Uint32 Rmask = src->format->Rmask;
+        Uint32 Gmask = src->format->Gmask;
+        Uint32 Bmask = src->format->Bmask;
+        Uint32 Amask = src->format->Amask;
+        int Rshift = src->format->Rshift;
+        int Gshift = src->format->Gshift;
+        int Bshift = src->format->Bshift;
+        int Ashift = src->format->Ashift;
+
+        Uint32 *srcEnd = p32Src + totalPixels;
+
+        while (p32Src < srcEnd)
+        {
+            Uint32 pixel = *p32Src++;
+
+            Uint8 A = (pixel & Amask) >> Ashift;
+
+            Uint8 gray = (((((pixel & Rmask) >> Rshift) * 77) +
+                           (((pixel & Gmask) >> Gshift) * 151) +
+                           (((pixel & Bmask) >> Bshift) * 28)) >> 8);
+
+            Uint32 outPix = (A << Ashift) | (gray << Rshift) |
+              (gray << Gshift) | (gray << Bshift);
+
+            outPix |= -((A >= 0x7F) & (outPix == 0)) & 1;
+            *p32Dst++ = (A < 0x7F) ? 0 : outPix;
+        }
+
+        SDL_UnlockSurface(src);
+        SDL_UnlockSurface(dst);
+
+        bResult = true;
+    }
+    return bResult;
+}
+
+void sep_do_blit(SDL_Surface *srfDest)
+{
+    switch (g_upgrade_overlay) {
+        case 4:
+            sep_fullalpha_srf32(g_se_surface, srfDest);
+            break;
+        case 3:
+            sep_format_monochrome(g_se_surface, srfDest);
+            break;
+        case 1:
+            sep_format_srf32(g_se_surface, srfDest);
+            break;
+        default:
+            sep_srf32_to_srf8(g_se_surface, srfDest);
+            break;
+    }
+}
+
+static SDL_RWops* sep_unzip(std::string s)
 {
     void* found = NULL;
     int size = 0;
 
-    ZipArchive zf(g_zipFile);
-    zf.open(ZipArchive::ReadOnly);
+    if (!g_zf->isOpen()) g_zf->open(ZipArchive::ReadOnly);
 
-    if (zf.isOpen()) {
-        g_zipList = zf.getEntries();
-        for (iter = g_zipList.begin(); iter != g_zipList.end(); ++iter) {
-             ZipEntry g_zipList = *iter;
+    if (g_zf->isOpen()) {
+        g_zipList = g_zf->getEntries();
+        for (m_iter = g_zipList.begin(); m_iter != g_zipList.end(); ++m_iter) {
+             ZipEntry g_zipList = *m_iter;
              std::string name = g_zipList.getName();
 
-             if ((int)name.find(s) != -1) {
+             if (name.find(s) != std::string::npos) {
                  found = g_zipList.readAsBinary();
                  size = g_zipList.getSize();
+                 break;
              }
         }
         g_zipList.clear();
-        zf.close();
+        if (!*g_zlfs) g_zf->close();
     }
 
-    return SDL_RWFromConstMem(found, size);
+    if (!found) return nullptr;
+
+    SDL_RWops* rw = SDL_RWFromMem(found, size);
+
+    rw->close = [](SDL_RWops* context) -> int {
+        delete[] reinterpret_cast<char*>(context->hidden.mem.base);
+        SDL_FreeRW(context);
+        return 0;
+    };
+
+    return rw;
 }
 
-g_soundT sep_sound_zip(std::string s)
+static g_soundT sep_sound_zip(std::string s)
 {
     g_soundT sound;
 
@@ -1052,14 +1317,14 @@ g_soundT sep_sound_zip(std::string s)
     return sound;
 }
 
-TTF_Font* sep_font_zip(std::string s, int points)
+static TTF_Font* sep_font_zip(std::string s, int points)
 {
     TTF_Font *font = TTF_OpenFontRW(sep_unzip(s), 1, points);
 
     return font;
 }
 
-Mix_Music* sep_mixer_zip(std::string s)
+static Mix_Music* sep_mixer_zip(std::string s)
 {
     Mix_Music *mix = Mix_LoadMUS_RW(sep_unzip(s), 1);
 
@@ -1067,7 +1332,7 @@ Mix_Music* sep_mixer_zip(std::string s)
 }
 
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
-IMG_Animation* sep_animation_zip(std::string s)
+static IMG_Animation* sep_animation_zip(std::string s)
 {
     IMG_Animation *animation = IMG_LoadAnimation_RW(sep_unzip(s), 1);
 
@@ -1075,14 +1340,14 @@ IMG_Animation* sep_animation_zip(std::string s)
 }
 #endif
 
-SDL_Surface* sep_surface_zip(std::string s)
+static SDL_Surface* sep_surface_zip(std::string s)
 {
     SDL_Surface *surface = IMG_Load_RW(sep_unzip(s), 1);
 
     return surface;
 }
 
-void sep_lua_failure(lua_State* L, const char* s)
+static void sep_lua_failure(lua_State* L, const char* s)
 {
     sep_error("error compiling script: %s : %s", s, lua_tostring(L, -1));
     sep_die("Cannot continue, quitting...");
@@ -1092,6 +1357,11 @@ void sep_lua_failure(lua_State* L, const char* s)
 void sep_altgame(const char *data)
 {
     g_altgame = data;
+}
+
+void sep_minseek(unsigned int delay)
+{
+    l_blank.duration = l_blank.count = std::min((int)delay, 32);
 }
 
 void sep_startup(const char *data)
@@ -1112,12 +1382,15 @@ void sep_startup(const char *data)
     g_soundList.push_back(sound);
     g_fontList.push_back(nullptr);
 
+    g_zlfs = new bool(false);
+
     g_se_lua_context = lua_open();
     luaL_openlibs(g_se_lua_context);
     lua_atpanic(g_se_lua_context, sep_lua_error);
 
     lua_register(g_se_lua_context, "colorBackground",        sep_color_set_backcolor);
     lua_register(g_se_lua_context, "colorForeground",        sep_color_set_forecolor);
+    lua_register(g_se_lua_context, "drawTransparent",        sep_draw_transparent);
 
     lua_register(g_se_lua_context, "hypseusGetHeight",       sep_hypseus_get_height);
     lua_register(g_se_lua_context, "hypseusGetWidth",        sep_hypseus_get_width);
@@ -1149,6 +1422,7 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "overlayClear",           sep_overlay_clear);
     lua_register(g_se_lua_context, "overlayGetHeight",       sep_get_overlay_height);
     lua_register(g_se_lua_context, "overlayGetWidth",        sep_get_overlay_width);
+    lua_register(g_se_lua_context, "overlaySetMonochrome",   sep_overlay_set_grayscale);
     lua_register(g_se_lua_context, "overlayPrint",           sep_say);
 
     lua_register(g_se_lua_context, "soundLoad",              sep_sound_load);
@@ -1167,6 +1441,8 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "vldpGetHeight",          sep_mpeg_get_height);
     lua_register(g_se_lua_context, "vldpGetPixel",           sep_mpeg_get_pixel);
     lua_register(g_se_lua_context, "vldpGetWidth",           sep_mpeg_get_width);
+    lua_register(g_se_lua_context, "vldpSetMonochrome",      sep_mpeg_set_grayscale);
+    lua_register(g_se_lua_context, "vldpSetLuma",            sep_mpeg_set_luma);
     lua_register(g_se_lua_context, "vldpSetVerbose",         sep_ldp_verbose);
 
     // Singe 2
@@ -1174,6 +1450,7 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "singeGetScriptPath",     sep_get_scriptpath);
     lua_register(g_se_lua_context, "singeWantsCrosshairs",   sep_singe_wants_crosshair);
     lua_register(g_se_lua_context, "mouseHowMany",           sep_get_number_of_mice);
+    lua_register(g_se_lua_context, "mouseHowManyReal",       sep_get_number_of_realmice);
     lua_register(g_se_lua_context, "mouseGetPosition",       sep_get_mouse_position);
     lua_register(g_se_lua_context, "overlayEllipse",         sep_overlay_ellipse);
     lua_register(g_se_lua_context, "overlayCircle",          sep_overlay_circle);
@@ -1191,8 +1468,12 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "keyboardGetLastDown",    sep_keyboard_get_down);
     lua_register(g_se_lua_context, "keyboardGetLastUp",      sep_keyboard_get_up);
     lua_register(g_se_lua_context, "keyboardIsDown",         sep_keyboard_is_down);
+    lua_register(g_se_lua_context, "keyboardCatchQuit",      sep_keyboard_block_quit);
     lua_register(g_se_lua_context, "controllerGetAxis",      sep_controller_axis);
     lua_register(g_se_lua_context, "controllerGetButton",    sep_controller_button);
+    lua_register(g_se_lua_context, "controllerSetPadding",   sep_controller_setwad);
+    lua_register(g_se_lua_context, "controllerGetPadding",   sep_controller_getwad);
+    lua_register(g_se_lua_context, "controllerHowMany",      sep_controller_attached);
     lua_register(g_se_lua_context, "soundGetVolume",         sep_sound_getvolume);
     lua_register(g_se_lua_context, "soundSetVolume",         sep_sound_setvolume);
     lua_register(g_se_lua_context, "videoGetVolume",         sep_vldp_getvolume);
@@ -1203,11 +1484,13 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "ratioGetY",              sep_get_yratio);
     lua_register(g_se_lua_context, "getFValue",              sep_get_fvalue);
     lua_register(g_se_lua_context, "setOverlaySize",         sep_set_overlaysize);
+    lua_register(g_se_lua_context, "setOverlayFullAlpha",    sep_set_overlayfullalpha);
     lua_register(g_se_lua_context, "setOverlayResolution",   sep_set_custom_overlay);
     lua_register(g_se_lua_context, "overlaySetResolution",   sep_set_custom_overlay);
     lua_register(g_se_lua_context, "spriteLoadFrames",       sep_sprite_loadframes);
     lua_register(g_se_lua_context, "spriteGetFrames",        sep_sprite_frames);
     lua_register(g_se_lua_context, "spriteDrawFrame",        sep_sprite_animate);
+    lua_register(g_se_lua_context, "spriteDrawGrid",         sep_sprite_grid);
     lua_register(g_se_lua_context, "spriteRotateFrame",      sep_sprite_rotateframe);
     lua_register(g_se_lua_context, "spriteDrawRotatedFrame", sep_sprite_animate_rotated);
     lua_register(g_se_lua_context, "spriteResetColorKey",    sep_sprite_color_rekey);
@@ -1218,11 +1501,18 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "takeScreenshot",         sep_screenshot);
     lua_register(g_se_lua_context, "rewriteStatus",          sep_lua_rewrite);
     lua_register(g_se_lua_context, "vldpGetScale",           sep_mpeg_get_scale);
+    lua_register(g_se_lua_context, "vldpSetScale",           sep_mpeg_set_scale);
+    lua_register(g_se_lua_context, "vldpGetRotate",          sep_mpeg_get_rotate);
+    lua_register(g_se_lua_context, "vldpSetRotate",          sep_mpeg_set_rotate);
     lua_register(g_se_lua_context, "vldpFocusArea",          sep_mpeg_focus_area);
     lua_register(g_se_lua_context, "vldpResetFocus",         sep_mpeg_reset_focus);
     lua_register(g_se_lua_context, "vldpGetYUVPixel",        sep_mpeg_get_rawpixel);
+    lua_register(g_se_lua_context, "getUserString",          sep_get_idstring);
+    lua_register(g_se_lua_context, "allowSocketCall",        sep_get_netperm);
+    lua_register(g_se_lua_context, "vldpFlash",              sep_mpeg_set_flash);
     lua_register(g_se_lua_context, "dofile",                 sep_doluafile);
 
+    lua_register(g_se_lua_context, "discAudioSuffix",        sep_audio_suffix);
     lua_register(g_se_lua_context, "musicLoad",              sep_music_load);
     lua_register(g_se_lua_context, "musicPlay",              sep_music_play);
     lua_register(g_se_lua_context, "musicIsPlaying",         sep_music_playing);
@@ -1232,6 +1522,7 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "musicSetVolume",         sep_music_volume);
     lua_register(g_se_lua_context, "musicUnload",            sep_music_unload);
 
+    lua_register(g_se_lua_context, "mainBezelLoaded",        sep_bezel_loaded);
     lua_register(g_se_lua_context, "scoreBezelEnable",       sep_bezel_enable);
     lua_register(g_se_lua_context, "scoreBezelClear",        sep_bezel_clear);
     lua_register(g_se_lua_context, "scoreBezelCredits",      sep_bezel_credits);
@@ -1241,6 +1532,7 @@ void sep_startup(const char *data)
     lua_register(g_se_lua_context, "scoreBezelGetState",     sep_bezel_is_enabled);
     lua_register(g_se_lua_context, "controllerDoRumble",     sep_controller_rumble);
     lua_register(g_se_lua_context, "controllerIsValid",      sep_controller_valid);
+    lua_register(g_se_lua_context, "joyMouseEnable",         sep_joymouse_enable);
 
     // by RDG2010
     lua_register(g_se_lua_context, "keyboardGetMode",        sep_keyboard_get_mode);
@@ -1265,12 +1557,12 @@ void sep_startup(const char *data)
 
     // These require SDL2_image version => 2.6.0
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
-    lua_register(g_se_lua_context, "spriteGetAnimFrame",     sep_sprite_get_frame);
+    lua_register(g_se_lua_context, "spriteAnimGetFrame",     sep_sprite_get_frame);
     lua_register(g_se_lua_context, "spriteAnimIsPlaying",    sep_sprite_playing);
     lua_register(g_se_lua_context, "spriteAnimLoop",         sep_sprite_loop);
     lua_register(g_se_lua_context, "spriteAnimPause",        sep_sprite_pause);
     lua_register(g_se_lua_context, "spriteAnimPlay",         sep_sprite_play);
-    lua_register(g_se_lua_context, "spriteSetAnimFrame",     sep_sprite_set_frame);
+    lua_register(g_se_lua_context, "spriteAnimSetFrame",     sep_sprite_set_frame);
 #endif
 
     //////////////////
@@ -1289,25 +1581,25 @@ void sep_startup(const char *data)
     std::string ext = g_scriptpath.substr(++pos);
     int zip = ext.compare("zip");
 
-    if (zip == 0) { // We have a zip
+    if (g_zlua_arg || zip == 0) { // We have a zip
 
-         ZipArchive zf(data);
-         zf.open(ZipArchive::ReadOnly);
+         g_zf = new ZipArchive(data);
+         g_zf->open(ZipArchive::ReadOnly);
 
-         if (zf.isOpen()) {
+         if (g_zf->isOpen()) {
 
              const char *init = NULL;
              int size = 0;
              g_rom_zip = true;
-             g_zipList = zf.getEntries();
+             g_zipList = g_zf->getEntries();
              g_zipFile = data;
              std::string startup;
 
              sep_print("Loading ZIP based ROM");
 
-             for (iter = g_zipList.begin(); iter != g_zipList.end(); ++iter) {
-                 ZipEntry g_zipList = *iter;
-                 std::string name = g_zipList.getName();
+             for (m_iter = g_zipList.begin(); m_iter != g_zipList.end(); ++m_iter) {
+                 ZipEntry entry = *m_iter;
+                 std::string name = entry.getName();
                  pos = g_scriptpath.find_last_of("/");
 #ifdef WIN32
                  if (pos == (size_t)-1)
@@ -1316,19 +1608,24 @@ void sep_startup(const char *data)
                  std::string s = g_scriptpath.substr(++pos);
 
                  if (!g_altgame.empty()) s = g_altgame + ".singe";
-                 else s.replace(s.find(".zip"), 4, ".singe");
+                 else {
+                     size_t period = s.find_last_of('.');
+                     if (period != std::string::npos) {
+                         s.replace(period, s.length() - period, ".singe");
+                     }
+                 }
 
                  startup = s;
 
-                 if ((int)name.find(s) != -1) {
-                     init = (const char*)g_zipList.readAsBinary();
-                     size = g_zipList.getSize();
+                 if (name.find(s) != std::string::npos) {
+                     init = (const char*)entry.readAsBinary();
+                     size = entry.getSize();
+                     break;
                  }
              }
              g_zipList.clear();
-             zf.close();
-
-             if (g_rom_zip) sep_set_rampath();
+             sep_set_rampath();
+             g_zf->close();
 
              if (size > 0 && luaL_loadbuffer(g_se_lua_context, init, size, data) == 0) {
 
@@ -1340,6 +1637,8 @@ void sep_startup(const char *data)
                 sep_lua_failure(g_se_lua_context, startup.c_str());
              }
 
+             if (init) delete[] const_cast<char*>(init);
+
          } else {
              sep_die("Failed opening Zip file: %s", data);
              g_bLuaInitialized = false;
@@ -1347,7 +1646,7 @@ void sep_startup(const char *data)
 
     } else {
 
-        if (g_pSingeIn->get_retro_path()) sep_set_retropath();
+        if (g_pSingeIn->get_es_path()) sep_set_espath();
 
         if (!g_altgame.empty()) {
             LOGI << sep_fmt("'%s': -usealt is only necessary with zip ROMs.",
@@ -1359,70 +1658,9 @@ void sep_startup(const char *data)
     }
 }
 
-void sep_unload_fonts(void)
+void sep_rom_compressed(void)
 {
-  if (g_fontList.size() > 0) {
-
-      for (int x = 0; x < (int)g_fontList.size(); x++)
-           TTF_CloseFont(g_fontList[x]);
-
-      g_fontList.clear();
-  }
-}
-
-void sep_unload_sounds(void)
-{
-  g_pSingeIn->samples_flush_queue();
-
-  if (g_soundList.size() > 0) {
-
-      for (int x = 0; x < (int)g_soundList.size(); x++)
-          if (g_soundList[x].load)
-              SDL_FreeWAV(g_soundList[x].buffer);
-
-      g_soundList.clear();
-  }
-}
-
-void sep_unload_mixers(void)
-{
-  if (g_mixerList.size() > 0) {
-
-      for (int x = 0; x < (int)g_mixerList.size(); x++)
-          if (g_mixerList[x].load)
-              Mix_FreeMusic(g_mixerList[x].data);
-
-      g_mixerList.clear();
-  }
-}
-
-void sep_unload_sprites(void)
-{
-  if (g_sprites.size() > 0) {
-
-      for (int x = 0; x < (int)g_sprites.size(); x++)
-      {
-          SDL_FreeSurface(g_sprites[x].present);
-          SDL_FreeSurface(g_sprites[x].store);
-          SDL_FreeSurface(g_sprites[x].frame);
-          g_sprites[x].present = NULL;
-          g_sprites[x].store = NULL;
-          g_sprites[x].frame = NULL;
-#if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
-          if (g_sprites[x].animation)
-              IMG_FreeAnimation(g_sprites[x].animation);
-          g_sprites[x].animation = NULL;
-#endif
-      }
-
-      g_sprites.clear();
-   }
-}
-
-void sep_mute_vldp_init(void)
-{
-   g_init_mute = true;
-   sep_print("Booting initVLDP() silently");
+   g_zlua_arg = true;
 }
 
 void sep_no_crosshair(void)
@@ -1432,7 +1670,12 @@ void sep_no_crosshair(void)
 
 void sep_upgrade_overlay(void)
 {
-   g_upgrade_overlay = true;
+   g_upgrade_overlay |= (1 << 0);
+}
+
+void sep_fullalpha_overlay(void)
+{
+   g_upgrade_overlay = (1 << 2);
 }
 
 void sep_enable_trace(void)
@@ -1443,6 +1686,22 @@ void sep_enable_trace(void)
 ////////////////////////////////////////////////////////////////////////////////
 
 // Singe API Calls
+
+static int sep_audio_suffix(lua_State *L)
+{
+  int n = lua_gettop(L);
+  bool result = false;
+
+  if (n == 1) {
+    if (lua_isstring(L, 1)) {
+      string suffix = lua_tostring(L, 1);
+      result = g_pSingeIn->switch_altaudio(suffix.c_str());
+    }
+  }
+
+  lua_pushboolean(L, result);
+  return 1;
+}
 
 static int sep_audio_control(lua_State *L)
 {
@@ -1481,7 +1740,7 @@ static int sep_audio_control(lua_State *L)
 
 static int sep_pseudo_audio_call(lua_State *L)
 {
-  LOGW << sep_fmt("Use the -altaudio argument");
+  LOGW << sep_fmt("Use the discAudioSuffix() API call");
   lua_pushnumber(L, 0);
 
   return 1;
@@ -1492,12 +1751,13 @@ static int sep_invalid_api_call(lua_State *L)
   lua_Debug ar;
   int level = 0;
 
-  while (lua_getstack(L, level, &ar) != 0)
+  while (lua_getstack(L, level++, &ar))
   {
       lua_getinfo(L, "n", &ar);
       if (ar.name) sep_die("%s() is currently unsupported", ar.name);
-      level++;
   }
+
+  LOGE << sep_fmt("Use an equivalent vldp() call");
   return 0;
 }
 
@@ -1524,13 +1784,13 @@ static int sep_color_set_backcolor(lua_State *L)
           if (lua_isnumber(L, 2))
               if (lua_isnumber(L, 3))
               {
-                  g_colorBackground.r = (char)lua_tonumber(L, 1);
-                  g_colorBackground.g = (char)lua_tonumber(L, 2);
-                  g_colorBackground.b = (char)lua_tonumber(L, 3);
+                  g_colorBackground.r = (uint8_t)lua_tonumber(L, 1);
+                  g_colorBackground.g = (uint8_t)lua_tonumber(L, 2);
+                  g_colorBackground.b = (uint8_t)lua_tonumber(L, 3);
                   if (n == 4 && lua_isnumber(L, 4) ) {
-                      g_colorBackground.a = (char)lua_tonumber(L, 4);
+                      g_colorBackground.a = (uint8_t)lua_tonumber(L, 4);
                   } else {
-                      g_colorBackground.a = (char)0;
+                      g_colorBackground.a = (uint8_t)0;
                   }
               }
   return 0;
@@ -1545,13 +1805,13 @@ static int sep_color_set_forecolor(lua_State *L)
           if (lua_isnumber(L, 2))
               if (lua_isnumber(L, 3))
               {
-                  g_colorForeground.r = (char)lua_tonumber(L, 1);
-                  g_colorForeground.g = (char)lua_tonumber(L, 2);
-                  g_colorForeground.b = (char)lua_tonumber(L, 3);
+                  g_colorForeground.r = (uint8_t)lua_tonumber(L, 1);
+                  g_colorForeground.g = (uint8_t)lua_tonumber(L, 2);
+                  g_colorForeground.b = (uint8_t)lua_tonumber(L, 3);
                   if (n == 4 && lua_isnumber(L, 4) ) {
-                      g_colorForeground.a = (char)lua_tonumber(L, 4);
+                      g_colorForeground.a = (uint8_t)lua_tonumber(L, 4);
                   } else {
-                      g_colorForeground.a = (char)0;
+                      g_colorForeground.a = (uint8_t)0;
                   }
               }
   return 0;
@@ -1613,10 +1873,9 @@ static int sep_font_load(lua_State *L)
 
         } else {
 
-           if (g_pSingeIn->get_retro_path()) {
-               char filepath[RETRO_MAXPATH] = {0};
-               int len = std::min((int)fontpath.size() + RETRO_PAD, RETRO_MAXPATH);
-               lua_retropath(fontpath.c_str(), filepath, len);
+           if (g_pSingeIn->get_es_path()) {
+               char filepath[REWRITE_MAXPATH] = {0};
+               lua_espath(fontpath.c_str(), filepath, REWRITE_MAXPATH);
                fontpath = filepath;
            }
 
@@ -1679,7 +1938,6 @@ static int sep_font_sprite(lua_State *L)
               TTF_Font *font = g_fontList[g_fontCurrent];
               if (!sep_font_valid(L, font, __func__)) return 0;
               SDL_Surface *textsurface = NULL;
-              textsurface = SDL_ConvertSurface(textsurface, g_se_surface->format, 0);
               const char *message = lua_tostring(L, 1);
 
               switch (g_fontQuality) {
@@ -1701,8 +1959,9 @@ static int sep_font_sprite(lua_State *L)
               } else {
 
                   if (g_firstload) sep_sprite_reset();
+
                   SDL_SetSurfaceRLE(textsurface, SDL_TRUE);
-                  SDL_SetColorKey(textsurface, SDL_TRUE, 0x0);
+                  if (g_colorkey) SDL_SetColorKey(textsurface, SDL_TRUE, 0x0);
 
                   g_spriteT sprite;
                   sprite.scaleX = 1.0;
@@ -1747,7 +2006,29 @@ static int sep_mpeg_get_height(lua_State *L)
 
 static int sep_mpeg_get_scale(lua_State *L)
 {
-    lua_pushnumber(L, g_pSingeIn->get_scalefactor());
+    lua_pushnumber(L, video::get_scalefactor());
+    return 1;
+}
+
+static int sep_mpeg_set_scale(lua_State *L)
+{
+    static double throttle = 0;
+    double now = (double)clock() / CLOCKS_PER_SEC;
+    bool result = false;
+
+    if ((now - throttle) < 0.015) {
+        lua_pushboolean(L, result);
+        return 1;
+    }
+
+    int scale = luaL_checkinteger(L, 1);
+    if ((unsigned)(scale - 25) <= 75) {
+        video::reset_scalefactor(scale, 0, false);
+        throttle = now;
+        result = true;
+    }
+
+    lua_pushboolean(L, result);
     return 1;
 }
 
@@ -1774,9 +2055,83 @@ static int sep_mpeg_focus_area(lua_State *L)
     return 0;
 }
 
+static int sep_mpeg_set_flash(lua_State *L)
+{
+    video::set_yuv_flash();
+    return 0;
+}
+
 static int sep_mpeg_reset_focus(lua_State *L)
 {
     video::reset_yuv_rect();
+    return 0;
+}
+
+static int sep_mpeg_set_grayscale(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1)
+      if (lua_isboolean(L, 1))
+        {
+          video::set_grayscale(lua_toboolean(L, 1));
+        }
+
+    return 0;
+}
+
+static int sep_mpeg_set_luma(lua_State *L)
+{
+    if (!lua_isboolean(L, 1))
+        return 0;
+
+    bool state = lua_toboolean(L, 1);
+    uint8_t luma = YUV_FLAG_LUMA;
+
+    if (lua_gettop(L) == 2) {
+        if (lua_isnumber(L, 2)) {
+            int v = lua_tointeger(L, 2);
+            if ((unsigned)v < 9) {
+                luma = (uint8_t)v;
+            }
+        }
+    }
+
+    video::set_luma(state, luma);
+    return 0;
+}
+
+static int sep_overlay_set_grayscale(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1)
+      if (lua_isboolean(L, 1) && (g_upgrade_overlay & (1 << 0)))
+        g_upgrade_overlay = (g_upgrade_overlay & ~(1 << 1)) | (lua_toboolean(L, 1) << 1);
+
+    return 0;
+}
+
+static int sep_mpeg_get_rotate(lua_State *L)
+{
+    float degree = video::get_fRotateDegrees();
+    lua_pushnumber(L, degree);
+    return 1;
+}
+
+static int sep_mpeg_set_rotate(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1) {
+        if (lua_isnumber(L, 1)) {
+            float degree = lua_tonumber(L, 1);
+            if (degree >= 0.0f && degree <= 360.0f) {
+                video::set_fRotateDegrees(degree, false);
+            }
+        }
+    }
+
     return 0;
 }
 
@@ -1798,123 +2153,85 @@ static int sep_vldp_setvolume(lua_State *L)
 	return 0;
 }
 
-static int sep_mpeg_get_rawpixel(lua_State *L)
+static bool yuv_from_buf(lua_State* L, uint8_t& Y, uint8_t& U, uint8_t& V)
 {
     int n = lua_gettop(L);
-    bool result = false;
-    unsigned char pixel[SDL_BYTESPERPIXEL(g_format)];
-    SDL_Rect rect;
 
     if (n == 2) {
         if (lua_isnumber(L, 1)) {
             if (lua_isnumber(L, 2)) {
-                rect.h = rect.w = 1;
-                rect.x = (int)((double)lua_tonumber(L, 1) * ((double)g_pSingeIn->g_vldp_info->w
-                                          / (double)g_se_overlay_width));
-                rect.y = (int)((double)lua_tonumber(L, 2) * ((double)g_pSingeIn->g_vldp_info->h
-                                          / (double)g_se_overlay_height));
-                if (g_pixelready) {
-                    if (SDL_SetRenderTarget(g_se_renderer, g_se_texture) < 0) {
-                        sep_die("Could not RenderTarget in vldpGetYUVPixel: %s", SDL_GetError());
-                        goto exit;
-                    } else {
-                        if (SDL_RenderReadPixels(g_se_renderer, &rect, g_format, pixel,
-                                SDL_BYTESPERPIXEL(g_format)) < 0) {
-                            sep_die("Could not ReadPixel in vldpGetYUVPixel: %s", SDL_GetError());
-                            goto exit;
-                        }
-                    }
-                    SDL_SetRenderTarget(g_se_renderer, NULL);
-                } else {
-                    g_se_renderer     = video::get_renderer();
-                    g_se_texture      = video::get_yuv_screen();
 
-                    if (g_se_renderer && g_se_texture) {
-                        SDL_QueryTexture(g_se_texture, &g_format, NULL, NULL, NULL);
-                        g_pixelready = true;
-                    }
-                    goto exit;
-	        }
+                int xpos = (int)(lua_tointeger(L, 1) * g_se_yuv_scale_x);
+                int ypos = (int)(lua_tointeger(L, 2) * g_se_yuv_scale_y);
 
-                result = true;
+                xpos = std::min(std::max(xpos, 0), g_se_yuv_buf.width - 1);
+                ypos = std::min(std::max(ypos, 0), g_se_yuv_buf.height - 1);
+
+                int UVx = std::min(xpos >> 1, g_se_yuv_buf.UVw - 1);
+                int UVy = std::min(ypos >> 1, g_se_yuv_buf.UVh - 1);
+
+                int Y_index  = ypos * g_se_yuv_buf.Ypitch + xpos;
+                int UV_index = UVy * g_se_yuv_buf.Upitch + UVx;
+
+                Y = g_se_yuv_buf.Y[Y_index];
+                U = g_se_yuv_buf.U[UV_index];
+                V = g_se_yuv_buf.V[UV_index];
+
+                if (!g_pixelready)
+                    g_pixelready = true;
+
+                return true;
             }
         }
     }
 
-exit:
-    if (result) {
-        lua_pushnumber(L, (int)pixel[0]); // Y
-        lua_pushnumber(L, (int)pixel[2]); // U
-        lua_pushnumber(L, (int)pixel[1]); // V
-    } else {
-        lua_pushnumber(L, -1);
-        lua_pushnumber(L, -1);
-        lua_pushnumber(L, -1);
+    return false;
+}
+
+static void lua_push_triplet(lua_State* L, int x, int y, int z)
+{
+    lua_pushnumber(L, x);
+    lua_pushnumber(L, y);
+    lua_pushnumber(L, z);
+}
+
+static int sep_mpeg_get_rawpixel(lua_State *L)
+{
+    uint8_t Y, U, V;
+
+    if (yuv_from_buf(L, Y, U, V))
+    {
+        lua_push_triplet(L, Y, U, V);
     }
+    else
+    {
+        lua_push_triplet(L, -1, -1, -1);
+    }
+
     return 3;
 }
 
 static int sep_mpeg_get_pixel(lua_State *L)
 {
-    int n = lua_gettop(L);
-    bool result = false;
-    unsigned char pixel[SDL_BYTESPERPIXEL(g_format)];
-    unsigned char R, G, B;
-    SDL_Rect rect;
-    int Y, U, V;
+    uint8_t Y, U, V;
 
-    if (n == 2) {
-        if (lua_isnumber(L, 1)) {
-            if (lua_isnumber(L, 2)) {
-                rect.h = rect.w = 1;
-                rect.x = (int)((double)lua_tonumber(L, 1) * ((double)g_pSingeIn->g_vldp_info->w
-                                          / (double)g_se_overlay_width));
-                rect.y = (int)((double)lua_tonumber(L, 2) * ((double)g_pSingeIn->g_vldp_info->h
-                                          / (double)g_se_overlay_height));
-                if (g_pixelready) {
-                    if (SDL_SetRenderTarget(g_se_renderer, g_se_texture) < 0) {
-                        sep_die("Could not RenderTarget in vldpGetPixel: %s", SDL_GetError());
-                        goto exit;
-                    } else {
-                        if (SDL_RenderReadPixels(g_se_renderer, &rect, g_format, pixel,
-                                SDL_BYTESPERPIXEL(g_format)) < 0) {
-                            sep_die("Could not ReadPixel in vldpGetPixel: %s", SDL_GetError());
-                            goto exit;
-                        }
-                    }
-                    SDL_SetRenderTarget(g_se_renderer, NULL);
-                } else {
-                    g_se_renderer     = video::get_renderer();
-                    g_se_texture      = video::get_yuv_screen();
+    if (yuv_from_buf(L, Y, U, V))
+    {
+        int C = Y - 0x10;
+        int D = U - 0x80;
+        int E = V - 0x80;
 
-                    if (g_se_renderer && g_se_texture) {
-                        SDL_QueryTexture(g_se_texture, &g_format, NULL, NULL, NULL);
-                        g_pixelready = true;
-                    }
-                    goto exit;
-	        }
+        uint8_t R = sep_byte_clip((298 * C           + 409 * E + 128) >> 8);
+        uint8_t G = sep_byte_clip((298 * C - 100 * D - 208 * E + 128) >> 8);
+        uint8_t B = sep_byte_clip((298 * C + 516 * D           + 128) >> 8);
 
-                Y = pixel[0] - 16;
-                U = pixel[2] - 128;
-                V = pixel[1] - 128;
-                R = sep_byte_clip(( 298 * Y + 409 * V + 128) >> 8);
-                G = sep_byte_clip(( 298 * Y - 100 * U - 208 * V + 128) >> 8);
-                B = sep_byte_clip(( 298 * Y + 516 * U + 128) >> 8);
-                result = true;
-            }
-        }
+        lua_push_triplet(L, R, G, B);
+    }
+    else
+    {
+        lua_push_triplet(L, -1, -1, -1);
     }
 
-exit:
-    if (result) {
-        lua_pushnumber(L, (int)R);
-        lua_pushnumber(L, (int)G);
-        lua_pushnumber(L, (int)B);
-    } else {
-        lua_pushnumber(L, -1);
-        lua_pushnumber(L, -1);
-        lua_pushnumber(L, -1);
-    }
     return 3;
 }
 
@@ -1954,12 +2271,17 @@ static int sep_set_custom_overlay(lua_State *L)
                 f = lua_tonumber(L, 2);
                 int h = (int)f;
 
-                lua_State* R = luaL_newstate();
-                lua_pushinteger(R, SINGE_OVERLAY_CUSTOM);
-                lua_pushinteger(R, w);
-                lua_pushinteger(R, h);
+                struct LuaTempState {
+                    lua_State* L;
+                    LuaTempState() { L = luaL_newstate(); }
+                    ~LuaTempState() { if (L) lua_close(L); }
+                } overlay;
 
-                sep_set_overlaysize(R);
+                lua_pushinteger(overlay.L, SINGE_OVERLAY_CUSTOM);
+                lua_pushinteger(overlay.L, w);
+                lua_pushinteger(overlay.L, h);
+
+                sep_set_overlaysize(overlay.L);
             }
         }
     }
@@ -2006,6 +2328,12 @@ static int sep_set_overlaysize(lua_State *L)
    return 0;
 }
 
+static int sep_set_overlayfullalpha(lua_State *L)
+{
+   sep_fullalpha_overlay();
+   return 0;
+}
+
 static int sep_get_xratio(lua_State *L)
 {
    lua_pushnumber(L, g_pSingeIn->cfm_get_xratio(g_pSingeIn->pSingeInstance));
@@ -2030,6 +2358,18 @@ static int sep_singe_wants_crosshair(lua_State *L)
    return 1;
 }
 
+static int sep_draw_transparent(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1)
+        if (lua_isboolean(L, 1)) {
+            g_colorkey = !lua_toboolean(L, 1);
+        }
+
+    return 0;
+}
+
 static int sep_mpeg_get_width(lua_State *L)
 {
     lua_pushnumber(L, g_pSingeIn->g_vldp_info->w);
@@ -2046,7 +2386,7 @@ static int sep_overlay_clear(lua_State *L)
 
 static int sep_lua_rewrite(lua_State *L)
 {
-    lua_pushboolean(L, !g_rom_zip && g_pSingeIn->get_retro_path());
+    lua_pushboolean(L, !g_rom_zip && g_pSingeIn->get_es_path());
 
     return 1;
 }
@@ -2093,7 +2433,6 @@ static int sep_say_font(lua_State *L)
                 TTF_Font *font = g_fontList[g_fontCurrent];
                 if (!sep_font_valid(L, font, __func__)) return 0;
                 SDL_Surface *textsurface = NULL;
-                textsurface = SDL_ConvertSurface(textsurface, g_se_surface->format, 0);
                 const char *message = lua_tostring(L, 3);
 
                 switch (g_fontQuality) {
@@ -2115,11 +2454,11 @@ static int sep_say_font(lua_State *L)
                     SDL_Rect dest;
                     dest.w = textsurface->w;
                     dest.h = textsurface->h;
-                    dest.x = lua_tonumber(L, 1) + g_sep_overlay_scale_x;
-                    dest.y = lua_tonumber(L, 2) + g_sep_overlay_scale_y;
+                    dest.x = lua_tonumber(L, 1) + g_se_overlay_scale_x;
+                    dest.y = lua_tonumber(L, 2) + g_se_overlay_scale_y;
 
                     SDL_SetSurfaceRLE(textsurface, SDL_TRUE);
-                    SDL_SetColorKey(textsurface, SDL_TRUE, 0x0);
+                    if (g_colorkey) SDL_SetColorKey(textsurface, SDL_TRUE, 0x0);
 
                     if (!g_blend_sprite)
                         SDL_SetSurfaceBlendMode(textsurface, SDL_BLENDMODE_NONE);
@@ -2129,6 +2468,18 @@ static int sep_say_font(lua_State *L)
                 }
 	}
   return 0;
+}
+
+static int sep_get_idstring(lua_State *L)
+{
+    lua_pushstring(L, g_pSingeIn->g_local_info->Uid);
+    return 1;
+}
+
+static int sep_get_netperm(lua_State *L)
+{
+    lua_pushboolean(L, net_send_enabled());
+    return 1;
 }
 
 static int sep_screenshot(lua_State *L)
@@ -2161,7 +2512,7 @@ static int sep_search(lua_State *L)
       g_pSingeIn->pre_search(s, true);
 
       if (g_pSingeIn->g_local_info->blank_during_searches)
-          palette::set_yuv_transparency(false);
+          l_blank.trip = true;
     }
 
   return 0;
@@ -2184,11 +2535,6 @@ static int sep_set_disc_fps(lua_State *L)
 {
   int n = lua_gettop(L);
 
-  if (g_init_mute) {
-      g_pSingeIn->disable_audio1();
-      g_pSingeIn->disable_audio2();
-  }
-
   if (n == 1)
       if (lua_isnumber(L, 1))
       {
@@ -2209,10 +2555,10 @@ static int sep_skip_backward(lua_State *L)
   if (n == 1)
     if (lua_isnumber(L, 1))
 	{
-          if (g_pSingeIn->g_local_info->blank_during_skips)
-              palette::set_yuv_transparency(false);
-
           g_pSingeIn->pre_skip_backward(lua_tonumber(L, 1));
+
+          if (g_pSingeIn->g_local_info->blank_during_skips)
+              l_blank.trip = true;
 	}
       
   return 0;
@@ -2238,10 +2584,10 @@ static int sep_skip_forward(lua_State *L)
   if (n == 1)
     if (lua_isnumber(L, 1))
 	{
-          if (g_pSingeIn->g_local_info->blank_during_skips)
-              palette::set_yuv_transparency(false);
-
           g_pSingeIn->pre_skip_forward(lua_tonumber(L, 1));
+
+          if (g_pSingeIn->g_local_info->blank_during_skips)
+              l_blank.trip = true;
 	}
       
   return 0;
@@ -2250,13 +2596,6 @@ static int sep_skip_forward(lua_State *L)
 static int sep_skip_to_frame(lua_State *L)
 {
   int n = lua_gettop(L);
-  static bool debounced = false;
-
-  if (g_init_mute && debounced) {
-      g_pSingeIn->enable_audio1();
-      g_pSingeIn->enable_audio2();
-      g_init_mute = false;
-  }
 
   if (n == 1)
   {
@@ -2265,13 +2604,12 @@ static int sep_skip_to_frame(lua_State *L)
           char s[7] = { 0 };
 
           if (g_pSingeIn->g_local_info->blank_during_skips)
-              palette::set_yuv_transparency(false);
+              l_blank.trip = true;
 
           g_pSingeIn->framenum_to_frame(lua_tonumber(L, 1), s);
           g_pSingeIn->pre_search(s, true);
           g_pSingeIn->pre_play();
           g_pause_state = false; // BY RDG2010
-          debounced = true;
       }
   }
   return 0;
@@ -2344,11 +2682,10 @@ static int sep_sound_load(lua_State *L)
 
       } else {
 
-          if (g_pSingeIn->get_retro_path())
+          if (g_pSingeIn->get_es_path())
           {
-              char tmpPath[RETRO_MAXPATH] = {0};
-              int len = std::min((int)filepath.size() + RETRO_PAD, RETRO_MAXPATH);
-              lua_retropath(filepath.c_str(), tmpPath, len);
+              char tmpPath[REWRITE_MAXPATH] = {0};
+              lua_espath(filepath.c_str(), tmpPath, REWRITE_MAXPATH);
               filepath = tmpPath;
           }
 
@@ -2438,11 +2775,10 @@ static int sep_music_load(lua_State *L)
       if (g_rom_zip) {
           temp = sep_mixer_zip(mixpath);
       } else {
-          if (g_pSingeIn->get_retro_path())
+          if (g_pSingeIn->get_es_path())
           {
-              char tmpPath[RETRO_MAXPATH] = {0};
-              int len = std::min((int)mixpath.size() + RETRO_PAD, RETRO_MAXPATH);
-              lua_retropath(mixpath.c_str(), tmpPath, len);
+              char tmpPath[REWRITE_MAXPATH] = {0};
+              lua_espath(mixpath.c_str(), tmpPath, REWRITE_MAXPATH);
               mixpath = tmpPath;
           }
 
@@ -2464,7 +2800,7 @@ static int sep_music_load(lua_State *L)
           sep_trace(L);
           if (temp) Mix_FreeMusic(temp);
 
-          for (const auto& format : mixerFlags) {
+          for (const auto& format : m_mixerFlags) {
               LOGW << sep_fmt("%s music is supported", format.second.c_str());
           }
 
@@ -2518,7 +2854,7 @@ static int sep_sprite_color_rekey(lua_State *L)
 
       if (!sep_sprite_valid(L, id, g_sprites[id].present, __func__)) return 0;
 
-      g_sprites[id].rekey = r;
+      if (!g_sprites[id].nokey) g_sprites[id].rekey = r;
   }
 
   if (id < 0) {
@@ -2533,24 +2869,30 @@ static int sep_sprite_animate(lua_State *L)
   int n = lua_gettop(L);
   int frame = 0;
   int id = -1;
-  double scale = 0;
+  double scalex = 0, scaley = 0;
   SDL_Rect src, dest;
 
-  // spriteDrawFrame(x, y, f, id)        - Simple animation
-  // spriteDrawFrame(x, y, s, f, id)     - Scaled animation
+  // spriteDrawFrame(x, y, f, id)           - Simple animation
+  // spriteDrawFrame(x, y, s, f, id)        - Scaled animation
+  // spriteDrawFrame(x, y, sx, sy, f, id)   - Axis Scaled animation
 
-  if ((n == 4) || (n == 5)) {
+  if ((n >= 4) && (n <= 6)) {
       if (lua_isnumber(L, 1)) {
           if (lua_isnumber(L, 2)) {
               if (lua_isnumber(L, 3)) {
                   if (lua_isnumber(L, 4)) {
-                      dest.x = lua_tonumber(L, 1) + g_sep_overlay_scale_x;
-                      dest.y = lua_tonumber(L, 2) + g_sep_overlay_scale_y;
-                      if (n == 5) {
+                      dest.x = lua_tonumber(L, 1) + g_se_overlay_scale_x;
+                      dest.y = lua_tonumber(L, 2) + g_se_overlay_scale_y;
+                      if (n > 4) {
                           if (lua_isnumber(L, 5)) {
-                              scale = lua_tonumber(L, 3);
+                              scalex = lua_tonumber(L, 3);
                               frame = lua_tonumber(L, 4);
                               id = lua_tonumber(L, 5);
+                          }
+                          if (n == 6 && lua_isnumber(L, 6)) {
+                              scaley = lua_tonumber(L, 4);
+                              frame = lua_tonumber(L, 5);
+                              id = lua_tonumber(L, 6);
                           }
                       } else {
                           frame = lua_tonumber(L, 3);
@@ -2572,14 +2914,13 @@ static int sep_sprite_animate(lua_State *L)
           src.x = g_sprites[id].fwidth * --frame;
           src.y = 0;
 
+          dest.w = (n == 4) ? g_sprites[id].present->w : (g_sprites[id].fwidth * scalex);
+          dest.h = (n == 4) ? g_sprites[id].present->h : (g_sprites[id].present->h * ((n == 6) ? scaley : scalex));
+
           if (n == 4) {
-              dest.w = g_sprites[id].present->w;
-              dest.h = g_sprites[id].present->h;
               SDL_BlitSurface(g_sprites[id].present, &src, g_se_surface, &dest);
 
           } else {
-              dest.w = (g_sprites[id].fwidth * scale);
-              dest.h = (g_sprites[id].present->h * scale);
               SDL_BlitScaled(g_sprites[id].present, &src, g_se_surface, &dest);
           }
       }
@@ -2596,22 +2937,27 @@ static int sep_sprite_animate_rotated(lua_State *L)
 {
   int n = lua_gettop(L);
   int id = -1;
-  double scale = 0;
+  double scalex = 0, scaley = 0;
   SDL_Rect dest;
 
-  // spriteDrawRotatedFrame(x, y, id)        - Print the rotated frame
-  // spriteDrawRotatedFrame(x, y, s, id)     - Print the frame scaled
+  // spriteDrawRotatedFrame(x, y, id)          - Print the rotated frame
+  // spriteDrawRotatedFrame(x, y, s, id)       - Print the frame scaled
+  // spriteDrawRotatedFrame(x, y, sx, sy, id)  - Print the frame (axis) scaled
 
-  if ((n == 3) || (n == 4)) {
+  if ((n >= 3) && (n <= 5)) {
       if (lua_isnumber(L, 1)) {
           if (lua_isnumber(L, 2)) {
               if (lua_isnumber(L, 3)) {
-                  dest.x = lua_tonumber(L, 1) + g_sep_overlay_scale_x;
-                  dest.y = lua_tonumber(L, 2) + g_sep_overlay_scale_y;
-                  if (n == 4) {
+                  dest.x = lua_tonumber(L, 1) + g_se_overlay_scale_x;
+                  dest.y = lua_tonumber(L, 2) + g_se_overlay_scale_y;
+                  if (n > 3) {
                       if (lua_isnumber(L, 4)) {
-                          scale = lua_tonumber(L, 3);
+                          scalex = lua_tonumber(L, 3);
                           id = lua_tonumber(L, 4);
+                      }
+                      if (n == 5 && lua_isnumber(L, 5)) {
+                          scaley = lua_tonumber(L, 4);
+                          id = lua_tonumber(L, 5);
                       }
                   } else {
                       id = lua_tonumber(L, 3);
@@ -2624,18 +2970,15 @@ static int sep_sprite_animate_rotated(lua_State *L)
           if (!g_blend_sprite)
               SDL_SetSurfaceBlendMode(g_sprites[id].frame, SDL_BLENDMODE_NONE);
 
+          dest.w = g_sprites[id].fwidth * ((n == 3) ? 1 : scalex);
+          dest.h = g_sprites[id].present->h * ((n == 3) ? 1 : (n == 5 ? scaley : scalex));
+          dest.x -= dest.w * 0.5;
+          dest.y -= dest.h * 0.5;
+
           if (n == 3) {
-              dest.w = g_sprites[id].fwidth;
-              dest.h = g_sprites[id].present->h;
-              dest.x -= dest.w * 0.5;
-              dest.y -= dest.h * 0.5;
               SDL_BlitSurface(g_sprites[id].frame, NULL, g_se_surface, &dest);
 
           } else {
-              dest.w = (g_sprites[id].fwidth * scale);
-              dest.h = (g_sprites[id].present->h * scale);
-              dest.x -= dest.w * 0.5;
-              dest.y -= dest.h * 0.5;
               SDL_BlitScaled(g_sprites[id].frame, NULL, g_se_surface, &dest);
           }
       }
@@ -2666,8 +3009,8 @@ static int sep_sprite_draw(lua_State *L)
   if ((n >= 3) && (n <= 6)) {
       if (lua_isnumber(L, 1)) {
           if (lua_isnumber(L, 2)) {
-              dest.x = lua_tonumber(L, 1) + g_sep_overlay_scale_x;
-              dest.y = lua_tonumber(L, 2) + g_sep_overlay_scale_y;
+              dest.x = lua_tonumber(L, 1) + g_se_overlay_scale_x;
+              dest.y = lua_tonumber(L, 2) + g_se_overlay_scale_y;
               if ((n == 3) || (n == 4)) {
                   if (n == 4) {
                       if (lua_isboolean(L, 3) && lua_isnumber(L, 4)) {
@@ -2756,6 +3099,53 @@ static int sep_sprite_draw(lua_State *L)
   return 0;
 }
 
+static int sep_sprite_grid(lua_State *L)
+{
+  // spriteDrawGrid(x, y, id, rectx, recty, rectw, recth)
+  const int args = 7;
+
+  if (lua_gettop(L) != args)
+      return 0;
+
+  for (int i = 1; i <= args; i++) {
+      if (!lua_isnumber(L, i))
+          return 0;
+  }
+
+  int x  = lua_tonumber(L, 1);
+  int y  = lua_tonumber(L, 2);
+  int id = lua_tonumber(L, 3);
+
+  SDL_Rect src;
+  src.x = (int)lua_tonumber(L, 4);
+  src.y = (int)lua_tonumber(L, 5);
+  src.w = (int)lua_tonumber(L, 6);
+  src.h = (int)lua_tonumber(L, 7);
+
+  SDL_Rect dest;
+  dest.x = x + g_se_overlay_scale_x;
+  dest.y = y + g_se_overlay_scale_y;
+  dest.w = src.w;
+  dest.h = src.h;
+
+  if (!sep_sprite_valid(L, id, g_sprites[id].present, __func__))
+      return 0;
+
+  if (src.x + src.w > g_sprites[id].present->w || src.y + src.h > g_sprites[id].present->h)
+  {
+      sep_trace(L);
+      sep_die("Out of bound sprite dimensions given in spriteDrawGrid");
+      return 0;
+  }
+
+  if (!g_blend_sprite)
+      SDL_SetSurfaceBlendMode(g_sprites[id].present, SDL_BLENDMODE_NONE);
+
+  SDL_BlitSurface(g_sprites[id].present, &src, g_se_surface, &dest);
+
+  return 0;
+}
+
 static int sep_sprite_frames(lua_State *L)
 {
   int n = lua_gettop(L);
@@ -2840,7 +3230,7 @@ static int sep_sprite_loadata(lua_State *L)
                 if (g_firstload) sep_sprite_reset();
 
                 SDL_SetSurfaceRLE(temp, SDL_TRUE);
-                SDL_SetColorKey(temp, SDL_TRUE, 0x0);
+                if (g_colorkey) SDL_SetColorKey(temp, SDL_TRUE, 0x0);
                 sprite.store = sep_copy_surface(temp, NULL);
                 sprite.present = temp;
                 sprite.scaleX = 1.0;
@@ -2850,6 +3240,8 @@ static int sep_sprite_loadata(lua_State *L)
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
                 sprite.animation = NULL;
 #endif
+                if (!g_colorkey) sprite.nokey = true;
+
                 g_sprites.push_back(sprite);
                 result = g_sprites.size() - 1;
 
@@ -2889,11 +3281,10 @@ static int sep_sprite_load(lua_State *L)
 
         } else {
 
-           if (g_pSingeIn->get_retro_path())
+           if (g_pSingeIn->get_es_path())
            {
-               char tmpPath[RETRO_MAXPATH] = {0};
-               int len = std::min((int)filepath.size() + RETRO_PAD, RETRO_MAXPATH);
-               lua_retropath(filepath.c_str(), tmpPath, len);
+               char tmpPath[REWRITE_MAXPATH] = {0};
+               lua_espath(filepath.c_str(), tmpPath, REWRITE_MAXPATH);
                filepath = tmpPath;
            }
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
@@ -2913,32 +3304,69 @@ static int sep_sprite_load(lua_State *L)
            if (temp->count < 2) {
 
                IMG_FreeAnimation(temp);
+               temp = NULL;
 
                SDL_Surface *image = NULL;
                if (g_rom_zip) image = sep_surface_zip(filepath);
                else image = IMG_Load(filepath.c_str());
 
-               image = SDL_ConvertSurface(image, g_se_surface->format, 0);
+               if (!image) {
+                   sep_trace(L);
+                   sep_die("Unable to reload sprite image %s!", filepath.c_str());
+                   return result;
+               }
+
+               SDL_Surface* convert = NULL;
+
+               if (g_se_surface)
+                   convert = SDL_ConvertSurface(image, g_se_surface->format, 0);
+
+               if (!convert) {
+                   SDL_FreeSurface(image);
+                   sep_trace(L);
+                   sep_die("Unable to convert sprite image %s!", filepath.c_str());
+                   return result;
+               }
+
+               SDL_FreeSurface(image);
+               image = convert;
+
                SDL_SetSurfaceRLE(image, SDL_TRUE);
-               SDL_SetColorKey(image, SDL_TRUE, 0x0);
+               if (g_colorkey) SDL_SetColorKey(image, SDL_TRUE, 0x0);
                sprite.store = sep_copy_surface(image, NULL);
                sprite.present = image;
                sprite.animation = NULL;
 
             } else {
 
-               for (int x = 0; x < temp->count; x++) {
-                   SDL_SetColorKey(temp->frames[x], SDL_TRUE, 0x0);
-               }
+               if (g_colorkey) {
+                   for (int x = 0; x < temp->count; x++) {
+                       SDL_SetColorKey(temp->frames[x], SDL_TRUE, 0x0);
+                   }
+	       }
 
                sprite.present = sep_copy_surface(temp->frames[0], NULL);
                sprite.store = sep_copy_surface(sprite.present, NULL);
                sprite.animation = temp;
            }
 #else
-           temp = SDL_ConvertSurface(temp, g_se_surface->format, 0);
+           SDL_Surface* convert = NULL;
+
+           if (g_se_surface)
+               convert = SDL_ConvertSurface(temp, g_se_surface->format, 0);
+
+           if (!convert) {
+               SDL_FreeSurface(temp);
+               sep_trace(L);
+               sep_die("Unable to convert sprite %s!", filepath.c_str());
+               return result;
+           }
+
+           SDL_FreeSurface(temp);
+           temp = convert;
+
            SDL_SetSurfaceRLE(temp, SDL_TRUE);
-           SDL_SetColorKey(temp, SDL_TRUE, 0x0);
+           if (g_colorkey) SDL_SetColorKey(temp, SDL_TRUE, 0x0);
            sprite.store = sep_copy_surface(temp, NULL);
            sprite.present = temp;
 #endif
@@ -2946,6 +3374,8 @@ static int sep_sprite_load(lua_State *L)
            sprite.scaleY = 1.0;
            sprite.gfx = true;
            sprite.frame = NULL;
+
+           if (!g_colorkey) sprite.nokey = true;
 
            g_sprites.push_back(sprite);
            result = g_sprites.size() - 1;
@@ -2989,11 +3419,10 @@ static int sep_sprite_loadframes(lua_State *L)
 
             } else {
 
-               if (g_pSingeIn->get_retro_path())
+               if (g_pSingeIn->get_es_path())
                {
-                   char tmpPath[RETRO_MAXPATH] = {0};
-                   int len = std::min((int)filepath.size() + RETRO_PAD, RETRO_MAXPATH);
-                   lua_retropath(filepath.c_str(), tmpPath, len);
+                   char tmpPath[REWRITE_MAXPATH] = {0};
+                   lua_espath(filepath.c_str(), tmpPath, REWRITE_MAXPATH);
                    filepath = tmpPath;
                }
 
@@ -3003,9 +3432,24 @@ static int sep_sprite_loadframes(lua_State *L)
             if (temp) {
 
                 if (g_firstload) sep_sprite_reset();
-                temp = SDL_ConvertSurface(temp, g_se_surface->format, 0);
+
+                SDL_Surface* convert = NULL;
+
+                if (g_se_surface)
+                    convert = SDL_ConvertSurface(temp, g_se_surface->format, 0);
+
+                if (!convert) {
+                    SDL_FreeSurface(temp);
+                    sep_trace(L);
+                    sep_die("Unable to convert frame sprites %s!", filepath.c_str());
+                    return result;
+                }
+
+                SDL_FreeSurface(temp);
+                temp = convert;
+
                 SDL_SetSurfaceRLE(temp, SDL_TRUE);
-                SDL_SetColorKey(temp, SDL_TRUE, 0x0);
+                if (g_colorkey) SDL_SetColorKey(temp, SDL_TRUE, 0x0);
 
                 g_spriteT sprite;
                 sprite.scaleX = 1.0;
@@ -3018,6 +3462,8 @@ static int sep_sprite_loadframes(lua_State *L)
 #if SDL_IMAGE_VERSION_AT_LEAST(2, 6, 0)
                 sprite.animation = NULL;
 #endif
+                if (!g_colorkey) sprite.nokey = true;
+
                 g_sprites.push_back(sprite);
                 result = g_sprites.size() - 1;
 
@@ -3511,9 +3957,27 @@ static int sep_stop(lua_State *L)
     return 0;
 }
 
+static int sep_joymouse_enable(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1) {
+        if (lua_isboolean(L, 1))
+            g_pSingeIn->cfm_joymouse_enable(g_pSingeIn->pSingeInstance, lua_toboolean(L, 1));
+    }
+
+    return 0;
+}
+
 static int sep_get_number_of_mice(lua_State *L)
 {
     lua_pushnumber(L, g_pSingeIn->cfm_get_number_of_mice(g_pSingeIn->pSingeInstance));
+    return 1;
+}
+
+static int sep_get_number_of_realmice(lua_State *L)
+{
+    lua_pushinteger(L,  get_realmouse_attached());
     return 1;
 }
 
@@ -3630,6 +4094,30 @@ static int sep_controller_valid(lua_State *L)
     return 1;
 }
 
+static int sep_controller_setwad(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1)
+        if (lua_isboolean(L, 1)) {
+            set_gamepad_wad(lua_toboolean(L, 1));
+        }
+
+    return 0;
+}
+
+static int sep_controller_getwad(lua_State *L)
+{
+    lua_pushinteger(L, get_gamepad_wad());
+    return 1;
+}
+
+static int sep_controller_attached(lua_State *L)
+{
+    lua_pushinteger(L, get_gamepad_attached());
+    return 1;
+}
+
 static int sep_controller_button(lua_State *L)
 {
     int n = lua_gettop(L);
@@ -3639,15 +4127,16 @@ static int sep_controller_button(lua_State *L)
     bool result = false;
 
     // Default to controller 0
-    // controllerGetButton(b)              - Is controller button down
-    // controllerGetButton(c, b)           - Is controller button down (Singe2 compatibility)
-    // controllerGetButton(c, b, f)        - c is unused: (bool)f (en)/dis Framework adjustment
-    //    ''       ''        ''            - bool false: Adopt SDL button enum values direct
+    // controllerGetButton(b)              - Is controller button down (SDL button enum values)
+    // controllerGetButton(c, b)           - ''         ''          '' (Framework requires bool)
+    // controllerGetButton(c, b, f)        - Singe2 Framework : 'f' en/(dis) Framework adjustment
+    //    ''       ''        ''            - bool 'f' = false: Use the SDL button enum values direct
+    //    ''       ''        ''            - bool 'f' = true: Use Singe2 Framework calculation below
 
     if (n > 0 && n <= 3) {
         if (lua_isnumber(L, 1)) {
 
-            bool framework = true;
+            bool framework = false; // No Framework adjustment by default
 
             if (n >= 2 && lua_isnumber(L, 2))
             {
@@ -3799,6 +4288,17 @@ static int sep_keyboard_is_down(lua_State *L)
     return 1;
 }
 
+static int sep_keyboard_block_quit(lua_State *L)
+{
+    int n = lua_gettop(L);
+
+    if (n == 1) {
+        if (lua_isboolean(L, 1))
+            g_pSingeIn->cfm_block_quit(g_pSingeIn->pSingeInstance, lua_toboolean(L, 1));
+    }
+    return 0;
+}
+
 // by RDG2010
 static int sep_singe_quit(lua_State *L)
 {
@@ -3811,8 +4311,8 @@ static int sep_singe_quit(lua_State *L)
 	* 
 	*/
 
-	g_se_saveme = false;
-	sep_die("User decided to quit early.");
+	g_se_grunt = false;
+	sep_die("User requested a quit.");
 	return 0;
 }
 // by RDG2010
@@ -4030,54 +4530,75 @@ static int sep_sound_setvolume(lua_State *L)
 
 static int sep_doluafile(lua_State *L)
 {
-	int n = lua_gettop(L);
+        int n = lua_gettop(L);
 
-	if (n == 1)
-	{
+        if (n == 1)
+        {
             const char *fname = luaL_optstring(L, 1, NULL);
 
-            if (g_rom_zip) {
+            if (!g_rom_zip) {
 
-                std::string file = fname;
-                std::string found;
+                if (luaL_dofile(L, fname) != 0)
+                    sep_die("error compiling script: %s", lua_tostring(L, -1));
 
-                ZipArchive zf(g_zipFile);
-                zf.open(ZipArchive::ReadOnly);
+                return 0;
+            }
 
-                if (zf.isOpen()) {
+            std::string file = fname;
+            std::string found;
 
-                    int size = 0;
-                    const char *entry = NULL;
-                    g_zipList = zf.getEntries();
+            if (!g_zf->isOpen()) g_zf->open(ZipArchive::ReadOnly);
 
-                    for (iter = g_zipList.begin(); iter != g_zipList.end(); ++iter) {
-                        ZipEntry g_zipList = *iter;
-                        std::string name = g_zipList.getName();
+            if (!g_zf->isOpen())
+                return 0;
 
-                        if ((int)name.find(file) != -1) {
-                            entry = (const char*)g_zipList.readAsBinary();
-                            size = g_zipList.getSize();
-                            found = name;
-                        }
-                    }
-                    g_zipList.clear();
-                    zf.close();
+            int size = 0;
+            char* entry = nullptr;
 
-                    if (size > 0 && luaL_loadbuffer(L, entry, size, g_zipFile) == 0) {
+            g_zipList = g_zf->getEntries();
 
-                        if (lua_pcall(L, 0, 0, 0) != 0)
-                            sep_die("error compiling script: %s: %s", found.c_str(), lua_tostring(L, -1));
+            for (m_iter = g_zipList.begin(); m_iter != g_zipList.end(); ++m_iter) {
 
-                    } else {
-                        sep_print("Zip entry: %s", fname);
-                        sep_die("error loading file from Zip: %s", lua_tostring(L, -1));
-                    }
+                ZipEntry zipEntry = *m_iter;
+                std::string name = zipEntry.getName();
+
+                if (name.find(file) != std::string::npos) {
+                    entry = static_cast<char*>(zipEntry.readAsBinary());
+                    size = zipEntry.getSize();
+                    found = name;
+                    break;
                 }
-            } else if (luaL_dofile(L, fname) != 0)
-                       sep_die("error compiling script: %s", lua_tostring(L, -1));
-	}
+            }
 
-	return 0;
+            g_zipList.clear();
+            if (!*g_zlfs) g_zf->close();
+
+            if (!entry || size <= 0) {
+                sep_print("Zip entry: %s", fname);
+                sep_die("error loading file from Zip: %s", fname);
+                return 0;
+            }
+
+            int loadStatus = luaL_loadbuffer(L, entry, size, g_zipFile);
+
+            delete[] entry;
+
+            if (loadStatus == 0)
+            {
+                if (lua_pcall(L, 0, 0, 0) != 0)
+                    sep_die("error compiling script: %s: %s", found.c_str(), lua_tostring(L, -1));
+            }
+            else
+                sep_die("error loading file from Zip: %s", lua_tostring(L, -1));
+       }
+
+       return 0;
+}
+
+static int sep_bezel_loaded(lua_State *L)
+{
+    lua_pushboolean(L, video::get_bezelstatus());
+    return 1;
 }
 
 static int sep_bezel_enable(lua_State *L)
@@ -4305,7 +4826,7 @@ static int sep_sprite_set_frame(lua_State *L)
     }
 
     if (id < 0) {
-        sep_die("spriteSetAnimFrame Failed!");
+        sep_die("spriteAnimSetFrame Failed!");
     }
     return 0;
 }

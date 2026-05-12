@@ -365,7 +365,7 @@ static void macosx_hidmanager_quit(void)
 } /* macosx_hidmanager_quit */
 
 
-static int macosx_hidmanager_init(void)
+static int macosx_hidmanager_init(const unsigned char filter)
 {
     macosx_hidmanager_quit();  /* just in case... */
 
@@ -416,7 +416,7 @@ static int macosx_hidmanager_poll(ManyMouseEvent *event)
 
 static const ManyMouseDriver ManyMouseDriver_interface =
 {
-    "Mac OS X 10.5+ HID Manager",
+    "Mac OS X HID Manager",
     macosx_hidmanager_init,
     macosx_hidmanager_quit,
     macosx_hidmanager_name,

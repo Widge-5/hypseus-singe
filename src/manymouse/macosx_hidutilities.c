@@ -51,23 +51,23 @@
 
 typedef enum HIDElementTypeMask
 {
-	kHIDElementTypeInput				= 1 << 1,
-	kHIDElementTypeOutput            	= 1 << 2,
-	kHIDElementTypeFeature           	= 1 << 3,
-	kHIDElementTypeCollection        	= 1 << 4,
-	kHIDElementTypeIO					= kHIDElementTypeInput | kHIDElementTypeOutput | kHIDElementTypeFeature,
-	kHIDElementTypeAll					= kHIDElementTypeIO | kHIDElementTypeCollection
+	kHIDElementTypeInput		= 1 << 1,
+	kHIDElementTypeOutput          	= 1 << 2,
+	kHIDElementTypeFeature         	= 1 << 3,
+	kHIDElementTypeCollection      	= 1 << 4,
+	kHIDElementTypeIO		= kHIDElementTypeInput | kHIDElementTypeOutput | kHIDElementTypeFeature,
+	kHIDElementTypeAll		= kHIDElementTypeIO | kHIDElementTypeCollection
 }HIDElementTypeMask;
 
 enum
 {
-    kDefaultUserMin = 0,					// default user min and max used for scaling
+    kDefaultUserMin = 0,				// default user min and max used for scaling
     kDefaultUserMax = 255
 };
 
 enum
 {
-    kDeviceQueueSize = 50	// this is wired kernel memory so should be set to as small as possible
+    kDeviceQueueSize = 50				// this is wired kernel memory so should be set to as small as possible
 							// but should account for the maximum possible events in the queue
 							// USB updates will likely occur at 100 Hz so one must account for this rate of
 							// if states change quickly (updates are only posted on state changes)
@@ -75,35 +75,35 @@ enum
 
 struct recElement
 {
-    unsigned long type;						// the type defined by IOHIDElementType in IOHIDKeys.h
-    long usagePage;							// usage page from IOUSBHIDParser.h which defines general usage
-    long usage;								// usage within above page from IOUSBHIDParser.h which defines specific usage
-    void * cookie;				 			// unique value (within device of specific vendorID and productID) which identifies element, will NOT change
-    long min;								// reported min value possible
-    long max;								// reported max value possible
-    long scaledMin;							// reported scaled min value possible
-    long scaledMax;							// reported scaled max value possible
-    long size;								// size in bits of data return from element
-    unsigned char relative;					// are reports relative to last report (deltas)
-    unsigned char wrapping;					// does element wrap around (one value higher than max is min)
+    unsigned long type;					// the type defined by IOHIDElementType in IOHIDKeys.h
+    long usagePage;					// usage page from IOUSBHIDParser.h which defines general usage
+    long usage;						// usage within above page from IOUSBHIDParser.h which defines specific usage
+    void * cookie;					// unique value (within device of specific vendorID and productID) which identifies element, will NOT change
+    long min;						// reported min value possible
+    long max;						// reported max value possible
+    long scaledMin;					// reported scaled min value possible
+    long scaledMax;					// reported scaled max value possible
+    long size;						// size in bits of data return from element
+    unsigned char relative;				// are reports relative to last report (deltas)
+    unsigned char wrapping;				// does element wrap around (one value higher than max is min)
     unsigned char nonLinear;				// are the values reported non-linear relative to element movement
     unsigned char preferredState;			// does element have a preferred state (such as a button)
     unsigned char nullState;				// does element have null state
-    long units;								// units value is reported in (not used very often)
-    long unitExp;							// exponent for units (also not used very often)
-    char name[256];							// name of element (c string)
+    long units;						// units value is reported in (not used very often)
+    long unitExp;					// exponent for units (also not used very often)
+    char name[256];					// name of element (c string)
 
 // runtime variables
-    long calMin; 							// min returned value
-    long calMax; 							// max returned value (calibrate call)
-    long userMin; 							// user set value to scale to (scale call)
-    long userMax;							
-    
-	struct recElement * pPrevious;			// previous element (NULL at list head)
+    long calMin; 					// min returned value
+    long calMax; 					// max returned value (calibrate call)
+    long userMin; 					// user set value to scale to (scale call)
+    long userMax;
+
+    struct recElement * pPrevious;			// previous element (NULL at list head)
     struct recElement * pChild;				// next child (only of collections)
     struct recElement * pSibling;			// next sibling (for elements and collections)
 
-	long depth;
+    long depth;
 };
 typedef struct recElement recElement;
 typedef recElement* pRecElement;
@@ -118,36 +118,36 @@ typedef enum
 
 struct recDevice
 {
-    void * interface;						// interface to device, NULL = no interface
-    void * queue;							// device queue, NULL = no queue
-	void * queueRunLoopSource;				// device queue run loop source, NULL == no source
-	void * transaction;						// output transaction interface, NULL == no interface
-	void * notification;					// notifications
-    char transport[256];					// device transport (c string)
-    long vendorID;							// id for device vendor, unique across all devices
-    long productID;							// id for particular product, unique across all of a vendors devices
-    long version;							// version of product
-    char manufacturer[256];					// name of manufacturer
-    char product[256];						// name of product
-    char serial[256];						// serial number of specific product, can be assumed unique across specific product or specific vendor (not used often)
-    long locID;								// long representing location in USB (or other I/O) chain which device is pluged into, can identify specific device on machine
-    long usage;								// usage page from IOUSBHID Parser.h which defines general usage
-    long usagePage;							// usage within above page from IOUSBHID Parser.h which defines specific usage
-    long totalElements;						// number of total elements (should be total of all elements on device including collections) (calculated, not reported by device)
-	long features;							// number of elements of type kIOHIDElementTypeFeature
-	long inputs;							// number of elements of type kIOHIDElementTypeInput_Misc or kIOHIDElementTypeInput_Button or kIOHIDElementTypeInput_Axis or kIOHIDElementTypeInput_ScanCodes
-	long outputs;							// number of elements of type kIOHIDElementTypeOutput
-	long collections;						// number of elements of type kIOHIDElementTypeCollection
-    long axis;								// number of axis (calculated, not reported by device)
-    long buttons;							// number of buttons (calculated, not reported by device)
-    long hats;								// number of hat switches (calculated, not reported by device)
-    long sliders;							// number of sliders (calculated, not reported by device)
-    long dials;								// number of dials (calculated, not reported by device)
-    long wheels;							// number of wheels (calculated, not reported by device)
-    recElement* pListElements; 				// head of linked list of elements 
-    DisconnectState disconnect; // (ryan added this.)
-    AbsoluteTime lastScrollTime;  // (ryan added this.)
-    int logical;  // (ryan added this.)
+    void * interface;					// interface to device, NULL = no interface
+    void * queue;					// device queue, NULL = no queue
+    void * queueRunLoopSource;				// device queue run loop source, NULL == no source
+    void * transaction;					// output transaction interface, NULL == no interface
+    void * notification;				// notifications
+    char transport[256];				// device transport (c string)
+    long vendorID;					// id for device vendor, unique across all devices
+    long productID;					// id for particular product, unique across all of a vendors devices
+    long version;					// version of product
+    char manufacturer[256];				// name of manufacturer
+    char product[256];					// name of product
+    char serial[256];					// serial number of specific product, can be assumed unique across specific product or specific vendor (not used often)
+    long locID;						// long representing location in USB (or other I/O) chain which device is pluged into, can identify specific device on machine
+    long usage;						// usage page from IOUSBHID Parser.h which defines general usage
+    long usagePage;					// usage within above page from IOUSBHID Parser.h which defines specific usage
+    long totalElements;					// number of total elements (should be total of all elements on device including collections) (calculated, not reported by device)
+    long features;					// number of elements of type kIOHIDElementTypeFeature
+    long inputs;					// number of elements of type kIOHIDElementTypeInput_Misc or kIOHIDElementTypeInput_Button or kIOHIDElementTypeInput_Axis or kIOHIDElementTypeInput_ScanCodes
+    long outputs;					// number of elements of type kIOHIDElementTypeOutput
+    long collections;					// number of elements of type kIOHIDElementTypeCollection
+    long axis;						// number of axis (calculated, not reported by device)
+    long buttons;					// number of buttons (calculated, not reported by device)
+    long hats;						// number of hat switches (calculated, not reported by device)
+    long sliders;					// number of sliders (calculated, not reported by device)
+    long dials;						// number of dials (calculated, not reported by device)
+    long wheels;					// number of wheels (calculated, not reported by device)
+    recElement* pListElements; 				// head of linked list of elements
+    DisconnectState disconnect; 			// (ryan added this.)
+    AbsoluteTime lastScrollTime;  			// (ryan added this.)
+    int logical;  					// (ryan added this.)
     struct recDevice* pNext; 				// next device
 };
 typedef struct recDevice recDevice;
@@ -673,7 +673,7 @@ static pRecElement hid_GetDeviceElement (pRecElement pElement, HIDElementTypeMas
 static unsigned long HIDCloseReleaseInterface (pRecDevice pDevice)
 {
 	IOReturn result = kIOReturnSuccess;
-	
+
 	if (HIDIsValidDevice(pDevice) && (NULL != pDevice->interface))
 	{
 		// close the interface
@@ -689,9 +689,9 @@ static unsigned long HIDCloseReleaseInterface (pRecDevice pDevice)
 		if (kIOReturnSuccess != result)
 			HIDREPORTERRORNUM ("HIDCloseReleaseInterface - Failed to release interface.", result);
 		pDevice->interface = NULL;
-	}	
+	}
 	return result;
-}      
+}
 
 
 // ---------------------------------
@@ -971,7 +971,7 @@ static unsigned long HIDCreateOpenDeviceInterface (UInt32 hidDevice, pRecDevice 
 static pRecDevice* hid_AddDevice (pRecDevice *ppListDeviceHead, pRecDevice pNewDevice)
 {
 	pRecDevice* result = NULL;
-	
+
     if (NULL == *ppListDeviceHead)
         result = ppListDeviceHead;
     else
@@ -1052,7 +1052,7 @@ static void hid_DeviceNotification( void *refCon,
         //printf("Device 0x%08x \"%s\"removed.\n", service, pDevice->product);
         // ryan added this.
         if (pDevice->disconnect == DISCONNECT_CONNECTED)
-    	    pDevice->disconnect = DISCONNECT_TELLUSER;
+            pDevice->disconnect = DISCONNECT_TELLUSER;
 
         // Free the data we're no longer using now that the device is going away
         // ryan commented this out.
@@ -1453,11 +1453,9 @@ static unsigned long  HIDQueueDevice (pRecDevice pDevice)
 		result = (*(IOHIDQueueInterface**) pDevice->queue)->start (pDevice->queue);
 		if (kIOReturnSuccess != result)
 			HIDREPORTERRORNUM ("HIDQueueDevice - Failed to start queue.", result);
-		
 	}
 	else
 		HIDREPORTERROR ("HIDQueueDevice - Invalid device.");
-
     return result;
 }
 
@@ -1581,7 +1579,7 @@ static void macosx_hidutilities_quit(void)
 } /* macosx_hidutilities_quit */
 
 
-static int macosx_hidutilities_init(void)
+static int macosx_hidutilities_init(const unsigned char filter)
 {
     macosx_hidutilities_quit();  /* just in case... */
 
