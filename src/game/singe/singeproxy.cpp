@@ -516,7 +516,7 @@ static bool sep_init_mixer()
     SDL_setenv("SDL_SOUNDFONTS", "midi/soundfont.sf2", 1);
 
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048) < 0) {
-        sep_die("SDL Mixer failed to open audio devices: %s", SDL_GetError());
+        sep_die("SDL Mixer failed to open audio devices: %s", Mix_GetError());
         return false;
 	}
 
